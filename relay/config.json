@@ -1,0 +1,17 @@
+{
+  "_comment": "Capability sets keyed by Foundry userId (NOT userName — names are mutable). Find your userId by opening the Foundry console (F12) in Firefox while logged in and running: game.user.id. The userName field next to each entry is for human readability only; the relay matches on userId.",
+  "ws": {
+    "host": "127.0.0.1",
+    "port": 7878
+  },
+  "mcp": {
+    "host": "127.0.0.1",
+    "port": 7879
+  },
+  "users": {
+    "<YOUR_GM_USER_ID>": {
+      "capabilitySet": "debug",
+      "userName": "DatJavaClass (GM)"
+    }
+  }
+}

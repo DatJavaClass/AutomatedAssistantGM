@@ -1,0 +1,36 @@
+# --- Dependencies -----------------------------------------------------------
+# The big one. Restored from package-lock.json with `npm install`, so it never
+# belongs in Git. This is what makes relay/ "too big" to upload.
+node_modules/
+
+# --- Relay runtime / local state --------------------------------------------
+# Kill-switch file the relay drops to stop the /loop — transient, machine-local.
+.loop-stop
+
+# --- Logs -------------------------------------------------------------------
+*.log
+npm-debug.log*
+
+# --- Atomic-write / editor temp files ---------------------------------------
+# e.g. PHASE1_STATUS.md.tmp.26392.0da586bca0e7, bridge.js.tmp.46432.9b51...
+*.tmp
+*.tmp.*
+
+# --- Environment / secrets --------------------------------------------------
+.env
+.env.*
+
+# --- OS cruft ---------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Editor folders ---------------------------------------------------------
+.vscode/
+.idea/
+
+# --- Not for publication ----------------------------------------------------
+# CLAUDE.md is intentionally excluded from the public repo.
+CLAUDE.md
+# Local Claude Code project dir (settings / local state).
+.claude/
