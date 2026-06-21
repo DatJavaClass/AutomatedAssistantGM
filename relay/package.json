@@ -1,0 +1,19 @@
+{
+  "name": "foundry-bridge-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local relay process bridging Foundry VTT (via in-browser WS module) and Claude clients (via MCP over Streamable HTTP).",
+  "main": "index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.0",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  }
+}
