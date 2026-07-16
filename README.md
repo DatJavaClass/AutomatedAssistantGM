@@ -1,3 +1,5 @@
+<p align="center"> <img width="420" alt="CodeMan" src="Docs/assets/CodeMan.png" /> </p>
+
 <p align=center> <img width="220" height="307" alt="dancing-bender" src="https://github.com/user-attachments/assets/83db7a2b-c687-4c1a-bbb7-84b7740953ed" /> </p>
 
 
@@ -102,4 +104,52 @@ Confirmation gate on all writes · double-confirm on deletes · ≥1 HP floor (l
 ---
 
 > ⚠️ **Known operator hazard: Claude's Fireball obsession.** The assistant driving this bridge has been observed reaching for *Fireball* as the answer to essentially any problem — including corrupted actors (immune: they're JSON), incorporeal threats, and the occasional merge conflict. If a fix proposal includes "and then a 8d6 evocation," apply the ≥1 HP floor, deny the gate, and gently suggest a saving throw. The spell list is wider than it looks.
+
+---
+
+<p align="center"> <img width="420" alt="PatchBoy" src="Docs/assets/PatchBoy.png" /> </p>
+
+# Claude Item Forge (plug-in macro)
+
+A paste-in world macro that turns the bridge into a magic-item factory. Describe an item to Claude in the chat box ("a +1 keen longsword", "boots that let the wearer walk on smoke") and Claude builds the complete item data for your game system, then invokes this macro through the gated eval. The finished item lands in a dedicated compendium, filed in the right folder, with the Approve/Deny card as the safety boundary. Good for conjuring a magic item in a pinch, mid-session, without leaving the table.
+
+Source: [`plugins/ClaudeItemForge.js`](plugins/ClaudeItemForge.js)
+
+### Install
+1. In Foundry, create a new **Script** macro named exactly `Claude Item Forge`.
+2. Paste the contents of `plugins/ClaudeItemForge.js` into it and save.
+3. Click the macro once. The bare run creates the storage below, repairs it if folders went missing, and shows a routing diagnostic. Bare runs never write items.
+
+### Storage it creates (automatically, on first run)
+```
+Claude Items  (world Item compendium)
+├─ Claude Magic Weapons
+│  ├─ Claude Magic Simple Weapons    <- weapon-simple
+│  ├─ Claude Magic Martial Weapons   <- weapon-martial
+│  ├─ Claude Magic Exotic Weapons    <- weapon-exotic
+│  ├─ Claude Magic Firearms          <- weapon-firearm
+│  └─ Claude Magic Ammo              <- ammo
+├─ Claude Magic Armor                <- magic-armor
+├─ Claude Wondrous Items             <- wondrous
+└─ Claude Alchemy                    <- alchemy
+```
+The arrows are the `destination` keys Claude passes when forging.
+
+### How Claude invokes it
+One gated eval per item, with declared intent `"write"`:
+```js
+return await game.macros.getName("Claude Item Forge").execute({
+  destination: "weapon-martial",
+  itemData: { name: "...", type: "weapon", img: "icons/...", system: { ... } }
+});
+```
+Returns `{ ok, uuid, name, folder, pack, warnings }` on success, `{ ok:false, error, ... }` on refusal.
+
+### Guard rails
+- **Duplicate refusal.** A same-name item in the pack refuses the forge unless `allowDuplicate: true` is passed, so a retried request can never double-create.
+- **Portable images only.** `img` must start with `icons/` (Foundry's core icon library) or `systems/<your system id>/`, and descriptions may not embed `<img>` tags. Nothing in the pack can dangle on world-local uploads, so the compendium stays shareable.
+- **Read-back verify.** The macro re-reads the created item from the pack before reporting success. Claude should still confirm with a separate read after the gate approves; a gated eval's own return value is never proof that a write landed.
+- **One item per approval.** Forge items one gated eval at a time; long batch loops inside a single eval will hit the relay timeout.
+
+Tested on Pathfinder 1e. The macro itself is system-agnostic: it validates against your world's own item types and leaves system-correct item data to Claude.
 
