@@ -1,7 +1,5 @@
 <p align="center"> <img width="420" alt="CodeMan" src="Docs/assets/CodeMan.png" /> </p>
 
-<p align=center> <img width="220" height="307" alt="dancing-bender" src="https://github.com/user-attachments/assets/83db7a2b-c687-4c1a-bbb7-84b7740953ed" /> </p>
-
 
 # AAGM — Foundry ↔ Claude Bridge
 
