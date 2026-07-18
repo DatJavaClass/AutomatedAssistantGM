@@ -196,3 +196,7 @@ Returns `{ ok, uuid, name, destination, folder, items, warnings }` on success, `
 
 Tested on Pathfinder 1e (straight clones, template applications, and vague open-ended briefs). The macro itself is system-agnostic: it validates against your world's own actor types and follows whatever source list your config journal carries.
 
+---
+
+Want to build your own plug-in? Both Forges follow one contract - a world macro as the endpoint behind the gated eval. The bare essentials are in [`Docs/PLUGIN_API_ALPHA.md`](Docs/PLUGIN_API_ALPHA.md).
+
