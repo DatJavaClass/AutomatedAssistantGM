@@ -3,7 +3,7 @@
 
 # AAGM - Foundry ↔ Claude Bridge
 
-**Jump to:** [Installation](#installation) · [Setup](#a-setup-one-time) · [Using it](#b-using-it-once-deployed) · [Troubleshooting](#troubleshooting-quick-hits) · [The Plug-in API](#the-plug-in-api)
+**Jump to:** [Installation](#installation) · [Setup](#a-setup-one-time) · [Using it](#b-using-it-once-deployed) · [Troubleshooting](#troubleshooting-quick-hits) · [The Plug-in API](#the-plug-in-api) · [License](#license)
 
 **Plug-ins:** [Item Forge](#claude-item-forge-plug-in-macro) · [Foe Forge](#claude-foe-forge-plug-in-macro) · [Link ReForge](#claude-link-reforge-plug-in-macro) · [Total Actor Backup](#claude-total-actor-backup-plug-in-macro)
 
@@ -297,4 +297,12 @@ Fair warning: more than any other part of AAGM, this plug-in is built **exclusiv
 ---
 
 Want to build your own plug-in? All four plug-ins follow one contract - a world macro as the endpoint behind the gated eval. The bare essentials are in [`Docs/PLUGIN_API_ALPHA.md`](Docs/PLUGIN_API_ALPHA.md).
+
+---
+
+## License
+
+MIT - see [`LICENSE`](LICENSE). Fork it, build on it, ship it; keep the copyright notice so the original stays credited.
+
+Not affiliated with, endorsed by, or sponsored by Paizo Inc., Foundry Gaming LLC, or The Forge. Pathfinder is a trademark of Paizo Inc.; Foundry VTT and The Forge are trademarks of their respective owners. This repository ships no Paizo content - the PF1e integration talks to the community pf1 game system's API and your own world's data.
 
