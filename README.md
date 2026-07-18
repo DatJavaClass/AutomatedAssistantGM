@@ -7,6 +7,10 @@
 
 **Plug-ins:** [Item Forge](#claude-item-forge-plug-in-macro) · [Foe Forge](#claude-foe-forge-plug-in-macro) · [Link ReForge](#claude-link-reforge-plug-in-macro) · [Total Actor Backup](#claude-total-actor-backup-plug-in-macro)
 
+**Module source can be found:** [`module/scripts/`](module/scripts)
+
+**Relay source can be found:** [`relay/src/`](relay/src)
+
 A localhost bridge between a Forge-hosted **Foundry VTT v12** world (Tested on Pathfinder 1e, should work on other systems) and **Claude** (Code or Chat). Two pieces:
 
 - **`relay/`** - a Node process on your machine. Runs the WebSocket server (talks to the Foundry module) and the MCP server (talks to Claude) in one process. Localhost-only.
