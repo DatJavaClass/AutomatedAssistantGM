@@ -151,3 +151,48 @@ Returns `{ ok, uuid, name, folder, pack, warnings }` on success, `{ ok:false, er
 
 Tested on Pathfinder 1e. The macro itself is system-agnostic: it validates against your world's own item types and leaves system-correct item data to Claude.
 
+---
+
+# Claude Foe Forge (plug-in macro)
+
+The Item Forge's combat-ready sibling: a paste-in world macro that turns the bridge into a monster factory. Describe a foe to Claude in the chat box ("an orc werewolf that fights with a chain", "something slow and dreadful for a swamp") and Claude clones the nearest real creature from your bestiary compendiums - or designs one from parts when nothing matches - then files the finished actor through the gated eval, sheet and hostile-ready prototype token included. The Approve/Deny card stays the safety boundary.
+
+Source: [`plugins/ClaudeFoeForge.js`](plugins/ClaudeFoeForge.js)
+
+### Install
+1. In Foundry, create a new **Script** macro named exactly `Claude Foe Forge`.
+2. Paste the contents of `plugins/ClaudeFoeForge.js` into it and save.
+3. Click the macro once. The bare run seeds the config journal below and shows a source/routing diagnostic. Bare runs never write actors.
+
+### Config journal it creates (automatically, on first run)
+A journal named **"Claude Foe Forge Config"** holds the destination and every compendium Claude may pull from (bestiaries, universal monster rules, monster abilities, templates, racial HD, feats, races). Edit it like any journal text page:
+```
+Destination:
+Insert Destination Compendium here     <- replace with a compendium id, or
+                                          "world.actors" for the Actors sidebar
+
+User Extra Content:
+system.content.stuff //Example Label   <- format guide (always ignored); add
+                                          your own "pack.id //Label" lines under it
+```
+The shipped source list is Pathfinder 1e (`pf1-bestiary` + `pf-content`); swap the pack ids for your system's content and the macro follows the journal, not the code.
+
+### How Claude invokes it
+One gated eval per foe, with declared intent `"write"`:
+```js
+return await game.macros.getName("Claude Foe Forge").execute({
+  actorData: { name: "...", type: "npc", img: "...", system: { ... },
+               items: [ ... ], prototypeToken: { ... } }
+});
+```
+Returns `{ ok, uuid, name, destination, folder, items, warnings }` on success, `{ ok:false, error, ... }` on refusal. `{ action: "config" }` returns the parsed source list, so Claude always knows what it may search.
+
+### Guard rails
+- **Duplicate refusal.** A same-name actor at the destination refuses the forge unless `allowDuplicate: true` is passed, so a retried request can never double-create.
+- **Mandatory icon coverage.** A payload with a missing/default portrait or icon-less items is refused before anything is created - no art-less monsters to repair by hand (`allowIconless: true` is the deliberate override).
+- **Hostile token defaults.** Disposition, name/bar visibility, and an HP bar are filled wherever the payload left gaps; anything Claude (or a bestiary clone) supplies wins.
+- **Read-back verify.** The macro re-reads the created actor before reporting success. Claude should still confirm with a separate read after the gate approves; a gated eval's own return value is never proof that a write landed.
+- **One foe per approval.** Forge foes one gated eval at a time; long batch loops inside a single eval will hit the relay timeout.
+
+Tested on Pathfinder 1e (straight clones, template applications, and vague open-ended briefs). The macro itself is system-agnostic: it validates against your world's own actor types and follows whatever source list your config journal carries.
+
