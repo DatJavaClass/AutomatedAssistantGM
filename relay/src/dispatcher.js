@@ -20,7 +20,7 @@ export class Dispatcher {
 
   // DESIGN §9 confirmation gate. Pushes the proposed write to the bridge (chat
   // box) and resolves with the human's decision, or auto-denies on timeout /
-  // no bridge. The write is NOT executed here — the caller dispatches it only
+  // no bridge. The write is NOT executed here - the caller dispatches it only
   // after { approved:true }.
   requestConfirmation({ capabilitySet, opId, kind, level, summary, code, preview, timeoutMs = 120_000 }) {
     const sent = this.notifyBridge({

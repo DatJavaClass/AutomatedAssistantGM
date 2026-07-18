@@ -1,4 +1,4 @@
-// Source for the auto-created "Claude Macro Workshop" macro — a separate
+// Source for the auto-created "Claude Macro Workshop" macro - a separate
 // window from the chat box (own blast radius), reusing the bridge module's
 // api/relay/loop/protocol. Serialized via Function.prototype.toString() like
 // chat-macro.js; must stay self-contained (runtime globals + the module api
@@ -10,7 +10,7 @@
 // Claude Dialog Box (replies & confirmation cards). "Load macro X" = ask in
 // the entry; Claude reads it and pushes it here via foundry_workshop_set.
 // Save duplicates the target as "<name>.old" (single rolling backup) then
-// overwrites the original to preserve its id/linkages — user-initiated, so
+// overwrites the original to preserve its id/linkages - user-initiated, so
 // NOT routed through the §9 gate (the click is the authorization).
 
 async function workshopMain() {
@@ -180,7 +180,7 @@ async function workshopMain() {
   };
 
   // Compact §9 confirm card (writes Claude initiates from here are still gated;
-  // Save is NOT — that's the user's button below).
+  // Save is NOT - that's the user's button below).
   const renderConfirm = (p) => {
     const log = $el('log');
     if (!log || !p || !p.opId) return;
@@ -188,7 +188,7 @@ async function workshopMain() {
     card.className = 'cmw-msg cmw-cf' + (p.level === 'double' ? ' cmw-dbl' : '');
     const h = document.createElement('div');
     h.className = 'cmw-cf-h';
-    h.textContent = (p.level === 'double' ? L('CfDestructive') : L('CfWrite')) + ' — ' + (p.kind || 'op');
+    h.textContent = (p.level === 'double' ? L('CfDestructive') : L('CfWrite')) + ' - ' + (p.kind || 'op');
     card.appendChild(h);
     const sum = document.createElement('div');
     sum.textContent = p.summary || '(no summary)';

@@ -3,7 +3,7 @@
 // dispatcher to the WS-connected bridge module.
 //
 // Transport choice: Streamable HTTP rather than stdio, because the relay is a
-// long-running shared process — both Claude Code (debug) and Claude Chat
+// long-running shared process - both Claude Code (debug) and Claude Chat
 // (AAGM, eventually) point at the same MCP endpoint. stdio would require
 // Claude Code to own the relay's lifecycle.
 
@@ -78,7 +78,7 @@ async function handlePost(req, res, makeServer, audit) {
     // sessionIdGenerator: undefined → true stateless per the SDK. With a
     // generator function set, the transport runs in stateful mode and rejects
     // any non-initialize request that lacks a session ID matching this
-    // transport's — but we tear the transport down after every response, so
+    // transport's - but we tear the transport down after every response, so
     // the next request never has a matching session and gets "Server not
     // initialized". Stateless mode skips that check entirely.
     const transport = new StreamableHTTPServerTransport({
@@ -205,28 +205,28 @@ function registerTools(server, dispatcher, audit, promptQueue) {
   server.tool(
     'foundry_eval',
     'Run JavaScript in the GM\'s Foundry client. READS run immediately. WRITES (create/update/' +
-    'setFlag/settings.set/move tokens/etc.) are held at a human confirmation gate — DatJavaClass sees ' +
+    'setFlag/settings.set/move tokens/etc.) are held at a human confirmation gate - DatJavaClass sees ' +
     'your `summary` + the exact code in the chat box and Approve/Denies; DELETES need a double ' +
     'confirm. Always set `intent` ("read"|"write"|"destructive") and, for write/destructive, a ' +
     'short plain-English `summary` (shown to DatJavaClass). The relay takes the stricter of your ' +
-    'declared intent and its own classifier, so be honest — under-declaring just forces a ' +
+    'declared intent and its own classifier, so be honest - under-declaring just forces a ' +
     'stronger confirm, never skips it. ABSOLUTE RULES the relay enforces: (1) HP changes / ' +
-    '"kill" are refused here — use foundry_apply_damage, which floors at 1 HP; reducing anyone ' +
+    '"kill" are refused here - use foundry_apply_damage, which floors at 1 HP; reducing anyone ' +
     'below 1 HP is human-only. (2) Database Journals (e.g. "NPC Register" ' +
     'JournalEntry.yB5klzKycb6bTbcy / Mail-Mailbox Index, runManaged pages) are never touched, ' +
-    'even read-only — get data the human/UI way instead, or say it needs the owning macro. ' +
+    'even read-only - get data the human/UI way instead, or say it needs the owning macro. ' +
     'Idioms: partial-name game.actors.filter(...includes); gold actor.system.currency.{pp,gp,' +
     'sp,cp}; classes actor.items.filter(i=>i.type==="class").c.system.level; "what scene is X ' +
     'on" walk game.scenes→scene.tokens→tokenDoc.actor; compendia fromUuid/pack.getIndex()→' +
     'getDocument; sidebar game.actors/items/journal/tables/macros(.command)/playlists/scenes/' +
     'folders. Result is depth/size-capped & circular-safe. If a call returns {refused:true} or ' +
-    '{blocked:true}, relay that to DatJavaClass verbatim — do not retry or work around the guard.',
+    '{blocked:true}, relay that to DatJavaClass verbatim - do not retry or work around the guard.',
     {
       code: z.string().describe('Async function body. Use return + await.'),
       intent: z.enum(['read', 'write', 'destructive']).optional().describe('Declare the effect. Default read.'),
       summary: z.string().optional().describe('Plain-English description shown to DatJavaClass at the gate. Required for write/destructive.'),
       awaitResult: z.boolean().optional().describe('Await a returned thenable before serializing (default true)'),
-      captureConsole: z.boolean().optional().describe('Debug mode: also return everything the snippet logged (console.*) and any thrown error+stack as {console:[...],thrown}, and DO NOT fail the call on error — for debugging/variable-hunting. Stateless per call.'),
+      captureConsole: z.boolean().optional().describe('Debug mode: also return everything the snippet logged (console.*) and any thrown error+stack as {console:[...],thrown}, and DO NOT fail the call on error - for debugging/variable-hunting. Stateless per call.'),
     },
     async ({ code, intent, summary, awaitResult, captureConsole }) => {
       const verdict = classifyEval(code);
@@ -237,15 +237,15 @@ function registerTools(server, dispatcher, audit, promptQueue) {
       if (verdict.category === 'db-journal') {
         audit.log('eval.blocked', { category: 'db-journal', match: verdict.match });
         return asText({ blocked: true, reason:
-          `Refused — this touches a Database Journal (${verdict.match}), a macro backing store, ` +
+          `Refused - this touches a Database Journal (${verdict.match}), a macro backing store, ` +
           `strictly off-limits even read-only. Get the data the human/UI way (sheet, compendium, ` +
           `sidebar); if it can only come from that journal, tell DatJavaClass it needs the owning macro.` });
       }
       if (verdict.category === 'hp') {
         audit.log('eval.blocked', { category: 'hp', match: verdict.match });
         return asText({ blocked: true, reason:
-          `Refused — HP / "kill" changes are not allowed through eval. Use foundry_apply_damage; ` +
-          `it enforces the absolute ≥1 HP floor. Reducing anyone below 1 HP is human-only — tell ` +
+          `Refused - HP / "kill" changes are not allowed through eval. Use foundry_apply_damage; ` +
+          `it enforces the absolute ≥1 HP floor. Reducing anyone below 1 HP is human-only - tell ` +
           `DatJavaClass he must deliver any lethal blow himself.` });
       }
       if (effective === 'read') {
@@ -253,7 +253,7 @@ function registerTools(server, dispatcher, audit, promptQueue) {
       }
       if (!summary || !summary.trim()) {
         return asText({ refused: true, reason:
-          `A plain-English \`summary\` is required for any write/destructive eval — it is shown ` +
+          `A plain-English \`summary\` is required for any write/destructive eval - it is shown ` +
           `to DatJavaClass at the confirmation gate. Re-issue with intent + summary.` });
       }
       const opId = randomUUID();
@@ -264,10 +264,10 @@ function registerTools(server, dispatcher, audit, promptQueue) {
       if (!decision.approved) {
         audit.log('eval.denied', { opId, reason: decision.reason });
         return asText({ refused: true, reason:
-          `Not executed — ${decision.reason}. DatJavaClass did not approve. Tell him plainly; do not retry ` +
+          `Not executed - ${decision.reason}. DatJavaClass did not approve. Tell him plainly; do not retry ` +
           `unless he asks.` });
       }
-      // Approved: extended window — choreography/animation can run long.
+      // Approved: extended window - choreography/animation can run long.
       const r = await dispatcher.sendToBridge({
         capabilitySet: PHASE1_CAPABILITY_SET, method: 'eval', params: { code, awaitResult, captureConsole }, timeoutMs: 300_000,
       });
@@ -280,12 +280,12 @@ function registerTools(server, dispatcher, audit, promptQueue) {
     'foundry_apply_damage',
     'Apply damage to one or more actors, with an ABSOLUTE ≥1 HP floor. Pass `targets` (names ' +
     'or UUIDs), positive integer `amount`, and a plain-English `summary` (shown to DatJavaClass). ' +
-    'This is the ONLY way to change HP — never do HP via foundry_eval. The relay first computes ' +
+    'This is the ONLY way to change HP - never do HP via foundry_eval. The relay first computes ' +
     'the result on live HP: if ANY target would land below 1 HP the WHOLE operation is REFUSED ' +
-    '(atomic, no partial application) — reducing anyone below 1 HP is human-only, so tell DatJavaClass ' +
+    '(atomic, no partial application) - reducing anyone below 1 HP is human-only, so tell DatJavaClass ' +
     'he must apply that killing blow himself. If all targets stay ≥1, it goes through a single ' +
     'confirmation (DatJavaClass sees the before→after preview and Approve/Denies). Damage hits temp ' +
-    'HP first, then value. This manipulates state; it does not adjudicate DR/resistances — pass ' +
+    'HP first, then value. This manipulates state; it does not adjudicate DR/resistances - pass ' +
     'the final amount you intend.',
     {
       targets: z.array(z.string()).min(1).describe('Actor names or UUIDs (token UUIDs resolve to their actor)'),
@@ -299,7 +299,7 @@ function registerTools(server, dispatcher, audit, promptQueue) {
       audit.log('damage.plan', { n: targets.length, amount, lethal: !!plan.lethal });
       if (plan.lethal) {
         return asText({ refused: true, reason:
-          `LETHAL — refused. One or more targets would drop below 1 HP, and reducing anyone below ` +
+          `LETHAL - refused. One or more targets would drop below 1 HP, and reducing anyone below ` +
           `1 HP is human-only. Tell DatJavaClass he must apply the killing blow himself.`,
           preview: plan.preview });
       }
@@ -310,14 +310,14 @@ function registerTools(server, dispatcher, audit, promptQueue) {
       });
       if (!decision.approved) {
         audit.log('damage.denied', { opId, reason: decision.reason });
-        return asText({ refused: true, reason: `Not applied — ${decision.reason}.`, preview: plan.preview });
+        return asText({ refused: true, reason: `Not applied - ${decision.reason}.`, preview: plan.preview });
       }
       const result = await callBridge('damage', { targets, amount, commit: true });
       audit.log('damage.commit', { opId, committed: !!result.committed });
       if (!result.committed) {
         // Plan→approve→commit race: a target dropped to lethal in between.
         return asText({ refused: true, reason:
-          `Not applied — between approval and execution a target reached the 1 HP floor. ` +
+          `Not applied - between approval and execution a target reached the 1 HP floor. ` +
           `Reducing anyone below 1 HP is human-only; tell DatJavaClass.`, preview: result.preview });
       }
       return asText(result);
@@ -334,10 +334,10 @@ function registerTools(server, dispatcher, audit, promptQueue) {
     'Long-polling drain of chat messages DatJavaClass typed in the in-Foundry "Open Claude Code Chat" ' +
     'box. This BLOCKS server-side until a message arrives or ~25s elapses, then returns ' +
     '{ prompts: [{promptId,text,ts}], terminate } (prompts may be empty on timeout). Because it ' +
-    'blocks, call it back-to-back with NO added delay/sleep — do not pace it yourself; the ' +
+    'blocks, call it back-to-back with NO added delay/sleep - do not pace it yourself; the ' +
     'server provides the pacing and pickup is near-instant. Calling this marks the box "Ready to ' +
-    'chat". If `terminate` is true, STOP the loop immediately — do not reschedule, do not poll ' +
-    'again — DatJavaClass requested shutdown via /exit or the local .loop-stop file. Answer each ' +
+    'chat". If `terminate` is true, STOP the loop immediately - do not reschedule, do not poll ' +
+    'again - DatJavaClass requested shutdown via /exit or the local .loop-stop file. Answer each ' +
     'prompt with foundry_send_reply.',
     {},
     async () => {
@@ -354,7 +354,7 @@ function registerTools(server, dispatcher, audit, promptQueue) {
     'foundry_send_reply',
     'Send a reply back into the in-Foundry chat box so DatJavaClass sees it. Call this after ' +
     'foundry_get_prompts returns prompts. Pass the reply `text`; optionally echo the `promptId` ' +
-    'you are answering. Returns { delivered } — false means the bridge box/WS is not currently ' +
+    'you are answering. Returns { delivered } - false means the bridge box/WS is not currently ' +
     'connected (the message is not buffered; tell DatJavaClass on the next poll if it keeps failing).',
     {
       text: z.string().describe('The reply to render in the Foundry chat box'),
@@ -381,9 +381,9 @@ function registerTools(server, dispatcher, audit, promptQueue) {
     'then call this with the full `content`, plus `macroId`+`macroName` so the Workshop\'s Save ' +
     'targets the right macro (Save makes a rolling "<name>.old" backup then overwrites the ' +
     'original to keep its id/links). For a brand-new macro, pass `macroName` only (no macroId). ' +
-    'Saving is DatJavaClass\'s button — never try to save/overwrite a macro via foundry_eval. Returns ' +
+    'Saving is DatJavaClass\'s button - never try to save/overwrite a macro via foundry_eval. Returns ' +
     '{delivered}; false = the Workshop window isn\'t open (tell DatJavaClass to open "Claude Macro ' +
-    'Workshop" — the push is held and shown when he opens it).',
+    'Workshop" - the push is held and shown when he opens it).',
     {
       content: z.string().describe('Full macro/script source to place in the editor'),
       macroId: z.string().optional().describe('Existing macro id this content came from (Save target)'),
@@ -402,7 +402,7 @@ function registerTools(server, dispatcher, audit, promptQueue) {
 
   server.tool(
     'foundry_workshop_get',
-    'Read the Claude Macro Workshop editor\'s CURRENT live content — DatJavaClass\'s edits included — ' +
+    'Read the Claude Macro Workshop editor\'s CURRENT live content - DatJavaClass\'s edits included - ' +
     'so you can refine/debug what is actually in the box (never assume; read ground truth). ' +
     'Returns { open, content, macroId, macroName }. open:false means the Workshop window is not ' +
     'open. Do not use this to confirm a foundry_workshop_set landed; use it to see DatJavaClass\'s edits.',

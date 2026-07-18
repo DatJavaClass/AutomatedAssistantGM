@@ -1,10 +1,10 @@
-// Phase 2 — the Foundry → Claude Code direction. The in-Foundry chat box sends
+// Phase 2 - the Foundry → Claude Code direction. The in-Foundry chat box sends
 // `claude.prompt` notifications; this queue buffers them for a polling /loop on
 // the Claude Code side (via the foundry_get_prompts MCP tool). Replies travel
 // back the other way as `claude.reply` notifications (see dispatcher.notifyBridge).
 //
 // Why a queue + poll instead of a push: nothing can inject a prompt into a
-// running Claude Code session — MCP is Claude-initiated. So Claude Code polls
+// running Claude Code session - MCP is Claude-initiated. So Claude Code polls
 // here in a loop, and the relay holds messages until it does.
 
 import { existsSync, rmSync } from 'node:fs';
@@ -19,7 +19,7 @@ const SWEEP_INTERVAL_MS = 10_000;
 // client's 60s request timeout, and < LISTENER_TIMEOUT_MS so an alive,
 // idle-but-polling loop still reads as "ready".
 const LONG_POLL_TIMEOUT_MS = 25_000;
-// Typed control words that mean "stop the loop" — see DESIGN §10 Phase 2.
+// Typed control words that mean "stop the loop" - see DESIGN §10 Phase 2.
 const TERMINATORS = new Set(['/exit', '/stop', '/quit']);
 
 export class PromptQueue {
@@ -76,7 +76,7 @@ export class PromptQueue {
     this._wake();   // release any in-flight long-poll immediately
   }
 
-  // .loop-stop is a local kill file — a terminator that works even if the
+  // .loop-stop is a local kill file - a terminator that works even if the
   // box/relay link is down. Idempotent: logs/sets terminate at most once.
   _checkStopFile() {
     if (!this.stopFilePath || !existsSync(this.stopFilePath)) return;

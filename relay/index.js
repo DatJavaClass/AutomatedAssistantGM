@@ -37,7 +37,7 @@ function loadConfig() {
   for (const section of ['ws', 'mcp']) {
     const host = cfg?.[section]?.host;
     if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') {
-      console.error(`[relay] config.${section}.host must be 127.0.0.1, localhost, or ::1 — got "${host}"`);
+      console.error(`[relay] config.${section}.host must be 127.0.0.1, localhost, or ::1 - got "${host}"`);
       process.exit(1);
     }
   }
@@ -49,7 +49,7 @@ const audit = new Audit({ stdout: true });
 const dispatcher = new Dispatcher({ audit });
 
 // `.loop-stop` in the relay dir is a local kill switch for the Claude Code
-// /loop — drop the file (or type /exit in the box) to end the loop cleanly.
+// /loop - drop the file (or type /exit in the box) to end the loop cleanly.
 const promptQueue = new PromptQueue({
   dispatcher,
   audit,
@@ -60,7 +60,7 @@ promptQueue.start();
 const ws = startWsServer({ config, dispatcher, audit });
 const mcp = await startMcpServer({ config, dispatcher, audit, promptQueue });
 
-console.log(`[relay] ready — WS on ws://${config.ws.host}:${config.ws.port}, MCP on http://${config.mcp.host}:${config.mcp.port}/mcp`);
+console.log(`[relay] ready - WS on ws://${config.ws.host}:${config.ws.port}, MCP on http://${config.mcp.host}:${config.mcp.port}/mcp`);
 
 function shutdown(reason) {
   console.log(`[relay] shutting down (${reason})`);

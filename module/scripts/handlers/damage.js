@@ -1,4 +1,4 @@
-// damage handler — the ONLY path that changes HP. Absolute rule (DatJavaClass):
+// damage handler - the ONLY path that changes HP. Absolute rule (DatJavaClass):
 // Claude Code may never reduce any actor below 1 HP; lethal blows are
 // human-only. Enforced here on live data, not by heuristics:
 //
@@ -9,7 +9,7 @@
 //                  throws. No partial application.
 //
 // Damage hits temp HP first, then value. This manipulates state; it does not
-// adjudicate DR/resistances (DESIGN §12) — the caller passes the final amount.
+// adjudicate DR/resistances (DESIGN §12) - the caller passes the final amount.
 
 async function resolveTarget(ref) {
   const s = String(ref ?? '').trim();
@@ -65,7 +65,7 @@ export async function handleDamage({ targets, amount, commit } = {}) {
   });
   const lethal = preview.some((p) => p.lethal);
 
-  // Lethal — for plan OR commit — is an atomic structured refusal: never a
+  // Lethal - for plan OR commit - is an atomic structured refusal: never a
   // throw, never a partial write. (The relay refuses before confirm; this also
   // catches a plan→commit race where HP dropped after approval.)
   if (!commit || lethal) {

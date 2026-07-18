@@ -1,4 +1,4 @@
-// query.user handler — list users (or one user). Returns online status and
+// query.user handler - list users (or one user). Returns online status and
 // character ownership.
 
 export async function handleQueryUser(params) {

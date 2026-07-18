@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 
 // Capability set definitions. The set name is what config.json maps users to;
 // the value is the list of methods that set is allowed to invoke. DESIGN.md
-// §5.1 is the source of truth — keep this in sync.
+// §5.1 is the source of truth - keep this in sync.
 const CAPABILITY_SETS = {
   debug: new Set([
     'ping',

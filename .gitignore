@@ -4,7 +4,7 @@
 node_modules/
 
 # --- Relay runtime / local state --------------------------------------------
-# Kill-switch file the relay drops to stop the /loop — transient, machine-local.
+# Kill-switch file the relay drops to stop the /loop - transient, machine-local.
 .loop-stop
 
 # --- Logs -------------------------------------------------------------------

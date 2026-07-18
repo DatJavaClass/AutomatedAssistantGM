@@ -1,7 +1,7 @@
 // Classifier for foundry_eval. The relay routes by category:
 //   db-journal  → hard refuse (macro backing stores; never, even read-only)
 //   hp          → hard refuse (HP only ever moves through foundry_apply_damage,
-//                 which enforces the absolute ≥1 HP floor — lethal is human-only)
+//                 which enforces the absolute ≥1 HP floor - lethal is human-only)
 //   destructive → write path, DOUBLE confirm (deletes)
 //   mutating    → write path, SINGLE confirm (create/update/flags/etc.)
 //   read        → execute immediately
@@ -29,14 +29,14 @@ const HP_WRITE = [
   /\.\s*(?:hp|hitPoints|currentHP)\b[\s\S]{0,24}=[^=]/,
 ];
 
-// Deletes — the most destructive class, always double-confirm.
+// Deletes - the most destructive class, always double-confirm.
 const DESTRUCTIVE = [
   /\bdelete(?:Documents|EmbeddedDocuments)?\s*\(/,
   /\.\s*delete\s*\(/,
   /\b(?:Actor|Item|Scene|JournalEntry|JournalEntryPage|Macro|RollTable|Playlist|PlaylistSound|Folder|Token|TokenDocument|ActiveEffect|Combat|Combatant|User|Cards|Card|Wall|Tile|Drawing|MeasuredTemplate|Note)\s*\.\s*delete/,
 ];
 
-// Everything else that changes state — single confirm.
+// Everything else that changes state - single confirm.
 const MUTATING = [
   /\b(?:create|update)(?:Documents|EmbeddedDocuments)?\s*\(/,
   /\.\s*(?:create|update)\s*\(/,

@@ -1,4 +1,4 @@
-// Foundry-Claude Bridge — main module entry. Registers settings, opens (when
+// Foundry-Claude Bridge - main module entry. Registers settings, opens (when
 // enabled) a WebSocket connection to the local relay, dispatches inbound
 // JSON-RPC requests through the handler set, and emits outbound notifications
 // (e.g. logs.entry) when the relay subscribes.
@@ -130,7 +130,7 @@ Hooks.once('ready', () => {
 // The module provisions its GUI macros itself. GM-only (players don't drive
 // Claude Code), idempotent by name so a reload doesn't pile up copies. The
 // command body is kept in sync on reload, but only for macros WE created
-// (autoMacro flag) — never a hand-rolled macro that merely shares the name.
+// (autoMacro flag) - never a hand-rolled macro that merely shares the name.
 async function ensureMacro(name, command, img) {
   try {
     if (!game.user?.isGM) return;
@@ -266,7 +266,7 @@ async function onMessage(msg) {
       }
       return;
     }
-    return; // unknown notification — ignore
+    return; // unknown notification - ignore
   }
 
   // Inbound command request (relay -> bridge).
@@ -296,5 +296,5 @@ async function onMessage(msg) {
       });
     }
   }
-  // Anything else (responses to requests we sent — Phase 1 doesn't initiate any) is ignored.
+  // Anything else (responses to requests we sent - Phase 1 doesn't initiate any) is ignored.
 }
