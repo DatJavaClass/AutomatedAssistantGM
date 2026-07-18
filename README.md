@@ -198,5 +198,49 @@ Tested on Pathfinder 1e (straight clones, template applications, and vague open-
 
 ---
 
-Want to build your own plug-in? Both Forges follow one contract - a world macro as the endpoint behind the gated eval. The bare essentials are in [`Docs/PLUGIN_API_ALPHA.md`](Docs/PLUGIN_API_ALPHA.md).
+# Claude Link ReForge (plug-in macro)
+
+The repair bay of the plug-in family: a paste-in world macro that fixes broken compendium links after a world migration, server transfer, or re-import. Tell Claude "repair the linkages" and it scans your packs for dead UUID references, works out which live compendium each dead pack became, proves the mapping with a dry run you approve, and only then rewrites the links. Built on the proven name-match core of two battle-tested repair macros, generalized to find links anywhere in a document - class associations, racial traits, description text, journal pages.
+
+Source: [`plugins/ClaudeLinkReForge.js`](plugins/ClaudeLinkReForge.js)
+
+### Install
+1. In Foundry, create a new **Script** macro named exactly `Claude Link ReForge`.
+2. Paste the contents of `plugins/ClaudeLinkReForge.js` into it and save.
+3. Click the macro once. The bare run shows a diagnostic (version, scan scope, receipt state). Bare runs never write.
+
+### The three-op flow
+```
+scan    -> every broken reference, grouped by dead pack id    (read-only)
+dryrun  -> resolves them against a proposed mapping, reports
+           per-pair match rates, stores a receipt             (approving = approving the MAPPING)
+apply   -> executes exactly the receipted dry run             (approving = approving the WRITES)
+```
+Resolution is by preserved `_id` first, then by name (exact, then cleaned of suffixes like "(Ex)" or "at 5th level"). A low match rate means a wrong pack - the report says so, and apply should not follow.
+
+### How Claude invokes it
+One op per gated eval:
+```js
+return await game.macros.getName("Claude Link ReForge").execute({ action: "scan" });
+return await game.macros.getName("Claude Link ReForge").execute({
+  action: "dryrun", mapping: { "world.dead-pack": "world.live-pack" } });
+return await game.macros.getName("Claude Link ReForge").execute({
+  action: "apply",  mapping: { ... }, confirmHash: "lr-..." });
+```
+Each op returns `{ ok, ... }` with its report, or `{ ok:false, error }` on refusal. Scan defaults to world compendiums; pass `packs: [...]` to include module-hosted ones.
+
+### Guard rails
+- **No dry run, no apply. Ever.** `apply` refuses unless its job hashes to the `confirmHash` of a dry-run receipt less than 30 minutes old. Change the mapping, the scan scope, or the skip rule and the hash breaks.
+- **Keep and report, never guess.** Unresolved links, malformed entries, and Bonus Feat associations are left untouched and listed for manual repair.
+- **Leaf-only rewrite.** Only the UUID string itself changes; names, levels, and any custom fields on a link survive untouched. Provenance metadata (`_stats`, `flags`) is never walked.
+- **Time-boxed and re-runnable.** Long repairs stop safely inside the gate's window; a re-run picks up where it left off, and already-fixed links drop out on their own.
+- **Verify after.** Claude confirms with a fresh scan after the gate approves; a gated eval's own return value is never proof that a write landed.
+
+Tested on Pathfinder 1e (an 89-link class/features relink after a full compendium migration). The macro itself is system-agnostic: it repairs whatever UUID references your documents actually carry, regardless of system schema.
+
+> **A quirk worth knowing.** Because Link ReForge walks whole documents rather than a single link field, it will sometimes find and repair flaws you didn't know a compendium had - stale references left behind by older migrations or hand edits, not just the breakage you pointed it at. It never does so uninvited: every repair shows up in the dry-run report first, and nothing is written without the gate's permission.
+
+---
+
+Want to build your own plug-in? All three plug-ins follow one contract - a world macro as the endpoint behind the gated eval. The bare essentials are in [`Docs/PLUGIN_API_ALPHA.md`](Docs/PLUGIN_API_ALPHA.md).
 
