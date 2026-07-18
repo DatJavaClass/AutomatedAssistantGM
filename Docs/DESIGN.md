@@ -1,17 +1,17 @@
 # Foundry–Claude Bridge: Design Document
 
-**Status:** Final Alpha — feature-complete & deployed (module 0.5.0); the **Claude Macro Workshop GUI is a Work In Progress** (debug/refinement ongoing). Live state-of-build: `PHASE1_STATUS.md`.
-**Last updated:** 2026-05-17
+**Status:** Final Alpha - feature-complete & deployed (module 0.6.4); the **Claude Macro Workshop GUI is a Work In Progress** (debug/refinement ongoing). Live state-of-build: `PHASE1_STATUS.md`.
+**Last updated:** 2026-07-18
 **Author:** DatJavaClass
 
 ---
 
 ## 1. Purpose
 
-A bridge that lets Claude (in two different surfaces — Claude Code and Claude Chat) interact with a running Foundry VTT v12 instance, hosted on Forge, running a Pathfinder 1e world. The bridge serves two distinct use cases:
+A bridge that lets Claude (in two different surfaces, Claude Code and Claude Chat) interact with a running Foundry VTT v12 instance, hosted on Forge, running a Pathfinder 1e world. The bridge serves two distinct use cases:
 
-- **Debug channel** — Claude Code helps author and debug macros by reading state, executing JS in the Foundry client context, and streaming logs back. Used during development.
-- **AAGM channel** — Claude Chat acts as an Automated Assistant Game Master during live sessions, performing curated game-state actions (move tokens, advance time, trigger weather, post chat as a distinct persona). Used during play.
+- **Debug channel** - Claude Code helps author and debug macros by reading state, executing JS in the Foundry client context, and streaming logs back. Used during development.
+- **AAGM channel** - Claude Chat acts as an Automated Assistant Game Master during live sessions, performing curated game-state actions (move tokens, advance time, trigger weather, post chat as a distinct persona). Used during play.
 
 Both channels share architecture but are physically and logically isolated from each other.
 
@@ -19,13 +19,13 @@ Both channels share architecture but are physically and logically isolated from 
 
 These are pre-decided. The implementer should treat them as fixed:
 
-- **Forge hosting.** No filesystem access on the server side. No world scripts. The bridge cannot live on the Foundry server itself — it must live on the client side as a module, plus a local relay process on DatJavaClass's machine.
+- **Forge hosting.** No filesystem access on the server side. No world scripts. The bridge cannot live on the Foundry server itself - it must live on the client side as a module, plus a local relay process on DatJavaClass's machine.
 - **No shared-secret auth.** Authorization is bound to active Foundry sessions. If you're logged in, the bridge works. If you're not, it doesn't. This is the security model.
-- **Two browsers, two accounts.** DatJavaClass's GM account runs in **Firefox**. The AAGM account runs in **Chrome**. The browsers act as a physical isolation boundary between the two channels — they share no cookies, storage, or process state.
-- **Claude for Chrome is the AAGM fallback.** Because the AAGM lives in Chrome, Claude Chat can use the Claude for Chrome extension to drive Foundry's UI directly when the bridge is unavailable. This is a proven capability — it has been used before.
+- **Two browsers, two accounts.** DatJavaClass's GM account runs in **Firefox**. The AAGM account runs in **Chrome**. The browsers act as a physical isolation boundary between the two channels - they share no cookies, storage, or process state.
+- **Claude for Chrome is the AAGM fallback.** Because the AAGM lives in Chrome, Claude Chat can use the Claude for Chrome extension to drive Foundry's UI directly when the bridge is unavailable. This is a proven capability - it has been used before.
 - **Sandbox scene exists.** The scene at UUID `Scene.<your-sandbox-scene-id>` is the test/debug environment. Macros already detect this scene and enable debug behavior. The bridge should respect this convention.
 - **Journal-as-database pattern is established.** State that needs to persist between sessions or be read by macros lives in journal entries. The bridge's audit log will follow this pattern.
-- **System Journal "VTT Macro Styles" is sacred.** Don't touch it. The bridge does not need to load styles — it has no GUI.
+- **System Journal "VTT Macro Styles" is sacred.** Don't touch it. The bridge does not need to load styles - it has no GUI.
 
 ## 3. Architecture overview
 
@@ -62,9 +62,9 @@ These are pre-decided. The implementer should treat them as fixed:
 
 Three components:
 
-1. **Bridge module** — A Foundry v12 module installed on the Forge instance via manifest URL. Runs in the Foundry client (browser). Opens an outbound WebSocket to the local relay. Exposes a command dispatcher.
-2. **Local relay** — A Node.js process running on DatJavaClass's machine. Accepts WebSocket connections from the bridge module(s). Exposes MCP server endpoints to Claude Code and Claude Chat. Routes commands. Logs everything.
-3. **Configuration** — A small config file on the relay specifying which Foundry user names map to which capability sets.
+1. **Bridge module** - A Foundry v12 module installed on the Forge instance via manifest URL. Runs in the Foundry client (browser). Opens an outbound WebSocket to the local relay. Exposes a command dispatcher.
+2. **Local relay** - A Node.js process running on DatJavaClass's machine. Accepts WebSocket connections from the bridge module(s). Exposes MCP server endpoints to Claude Code and Claude Chat. Routes commands. Logs everything.
+3. **Configuration** - A small config file on the relay specifying which Foundry user names map to which capability sets.
 
 ## 4. Channel model
 
@@ -85,7 +85,7 @@ Three components:
 
 The debug channel is operated by DatJavaClass in real time and is short-lived (you fix a thing, you stop). Arbitrary `eval` is acceptable because the human is in the loop on every command.
 
-The AAGM channel is operated by an autonomous agent during a live session. Arbitrary `eval` would be an unbounded knife. Instead, AAGM gets a curated set of high-level operations whose failure modes are understood. If AAGM needs a new capability, we add a handler — we do not give it a way to invent capabilities at runtime.
+The AAGM channel is operated by an autonomous agent during a live session. Arbitrary `eval` would be an unbounded knife. Instead, AAGM gets a curated set of high-level operations whose failure modes are understood. If AAGM needs a new capability, we add a handler - we do not give it a way to invent capabilities at runtime.
 
 ### 4.3 Fallback path (AAGM only)
 
@@ -96,14 +96,14 @@ If the bridge is unavailable mid-session:
 3. Operations are slower and clumsier (DOM clicks, UI navigation) but Foundry is fully usable.
 4. When the bridge recovers, Claude Chat returns to the fast path.
 
-The debug channel has no equivalent fallback — Firefox does not have Claude for Chrome, and that is fine. Debug is not time-critical.
+The debug channel has no equivalent fallback - Firefox does not have Claude for Chrome, and that is fine. Debug is not time-critical.
 
 ## 5. Authorization model
 
 Authorization is implicit in WebSocket connection state:
 
 - **The bridge module opens the WS connection from inside Foundry.** It can only do so if a Foundry session exists.
-- **The connection lives only as long as the Foundry tab is open and the session is valid.** Close the tab, log out, or let the session expire — connection drops.
+- **The connection lives only as long as the Foundry tab is open and the session is valid.** Close the tab, log out, or let the session expire - connection drops.
 - **The relay applies a capability set based on which Foundry user the bridge is running as.** Sent in a `hello` message at connection time.
 - **No tokens, no passwords, no shared secrets.** The session itself is the credential.
 
@@ -121,7 +121,7 @@ Defined in the relay's config file. A capability set is a list of allowed handle
 - `logs.subscribe` / `logs.unsubscribe`
 - `eval` (gated by additional confirmation in the relay; full power)
 
-**`aagm` set** (initial — will grow):
+**`aagm` set** (initial, will grow):
 - `ping`
 - All `query.*` from debug
 - `token.move`
@@ -223,7 +223,7 @@ Standard JSON-RPC error format with custom error codes:
 
 ### 6.4 Streaming (logs)
 
-`logs.subscribe` is a long-running operation. Implement as a notification stream — the bridge sends `logs.entry` notifications (no `id` field) until the client sends `logs.unsubscribe`.
+`logs.subscribe` is a long-running operation. Implement as a notification stream - the bridge sends `logs.entry` notifications (no `id` field) until the client sends `logs.unsubscribe`.
 
 ```json
 {
@@ -244,7 +244,7 @@ The channels above are Claude-initiated (Claude calls a tool; Foundry answers).
 Phase 2 adds the reverse direction for the **debug** channel only: an in-Foundry
 chat box where DatJavaClass types to Claude Code and sees replies inline.
 
-Mechanism — a relay-buffered queue drained by a polling Claude Code `/loop`.
+Mechanism - a relay-buffered queue drained by a polling Claude Code `/loop`.
 Nothing can push a prompt into a running Claude Code session (MCP is
 Claude-initiated), so Claude Code polls and the relay holds messages until it
 does. Four new JSON-RPC notifications (no `id`, fire-and-forget):
@@ -258,21 +258,21 @@ does. Four new JSON-RPC notifications (no `id`, fire-and-forget):
 
 Two MCP tools expose the queue to Claude Code: `foundry_get_prompts` and
 `foundry_send_reply` `{text,promptId?}`. The loop ends when `terminate` is
-true — set by an `/exit`-class word **or** the local `relay/.loop-stop` kill
+true - set by an `/exit`-class word **or** the local `relay/.loop-stop` kill
 file (a terminator that works even if the box↔relay link is down).
 
 `foundry_get_prompts` **long-polls**: it blocks server-side until a prompt or
 terminate arrives, or ~25s elapses, then returns (empty on timeout). The loop
-calls it back-to-back with no client-side pacing — the server provides the
+calls it back-to-back with no client-side pacing - the server provides the
 cadence. A queued prompt or `/exit` wakes any in-flight call immediately;
 `.loop-stop` is also caught by the 10s sweep so it ends a mid-poll idle loop.
 
-**Latency model.** Queue transit is localhost WS + in-memory — sub-millisecond;
+**Latency model.** Queue transit is localhost WS + in-memory, sub-millisecond;
 network is never the bottleneck. End-to-end delay = *pickup* + *compose*.
 Long-polling drives pickup to ≈0 when active. Compose (Claude actually doing
 the task; scales with reply length) is irreducible model work. The ~25s
 timeout bounds the failure case: if anything stalls, the call returns and the
-loop retries within one cycle — nothing hangs. A single loop serializes:
+loop retries within one cycle - nothing hangs. A single loop serializes:
 replies are produced one at a time; `foundry_get_prompts` drains *all* queued
 prompts at once so a burst is picked up together.
 
@@ -292,7 +292,7 @@ Build these first. Both channels need them; `debug` gets all of them, `aagm` get
 
 ### `query.scene`
 - Params: `{ sceneId?: string }` (defaults to active scene)
-- Result: scene metadata, token list (id/name/position only — not full token data unless requested), wall count, lighting state
+- Result: scene metadata, token list (id/name/position only, not full token data unless requested), wall count, lighting state
 - Purpose: understand the current play context
 
 ### `query.macro`
@@ -323,11 +323,11 @@ Build these first. Both channels need them; `debug` gets all of them, `aagm` get
 - Purpose: run arbitrary JS in the Foundry client context for debugging
 - **Implementation note:** Use `(new Function(...))()` not raw `eval` to avoid scope leaks. Wrap in try/catch. Serialize result with a depth limit and circular-reference guard. If `awaitResult` is true, await the return if it's a Promise.
 
-**Activated 2026-05-17 — read-scoped.** `eval` is built (`module/scripts/handlers/eval.js`, full power per the note above) and exposed as `foundry_eval`. This stage is **reads only**: `relay/src/eval-guard.js` classifies each eval at the relay and *refuses* mutating/destructive code (create/update/delete, setFlag, settings.set, applyDamage, ChatMessage.create, Hooks.call, direct field assignment, …) before it reaches Foundry — it never executes. This is defense-in-depth, **not a sandbox** (arbitrary JS can't be proven read-only); the hard boundary is that no write path is exposed. Every eval is audited (`eval.in` / `eval.blocked`). The DESIGN §9 **double-confirmation gate** for deletes / "kill actor" is the deliverable of the next (Co-GM writes) stage — full power + always-double-confirm-destructive is the standing requirement for that stage.
+**Activated 2026-05-17 - read-scoped.** `eval` is built (`module/scripts/handlers/eval.js`, full power per the note above) and exposed as `foundry_eval`. This stage is **reads only**: `relay/src/eval-guard.js` classifies each eval at the relay and *refuses* mutating/destructive code (create/update/delete, setFlag, settings.set, applyDamage, ChatMessage.create, Hooks.call, direct field assignment, …) before it reaches Foundry - it never executes. This is defense-in-depth, **not a sandbox** (arbitrary JS can't be proven read-only); the hard boundary is that no write path is exposed. Every eval is audited (`eval.in` / `eval.blocked`). The DESIGN §9 **double-confirmation gate** for deletes / "kill actor" is the deliverable of the next (Co-GM writes) stage - full power + always-double-confirm-destructive is the standing requirement for that stage.
 
-**Write / Co-GM stage activated 2026-05-17 (module 0.4.0).** eval-guard now *classifies* rather than blanket-refuses: `read` runs immediately; `mutating` → §9 gate single-confirm; `destructive` (deletes) → §9 gate **double**-confirm; `db-journal` and `hp` are hard-refused. The relay takes the stricter of Claude's declared `intent` and the classifier. The §9 gate lives in `dispatcher.js` (`requestConfirmation`/`resolveConfirmation`); the proposal (summary + exact code, or damage preview) is rendered as an Approve/Deny card in the chat box; no open box ⇒ auto-deny; ~120 s ⇒ auto-deny. HP changes go **only** through `foundry_apply_damage` (`handlers/damage.js`), which enforces an **absolute ≥1 HP floor — Claude may never reduce any actor below 1 HP; lethal is human-only, not even double-confirm** — atomically (all-or-nothing, no partial writes, race-checked at commit). **No sandbox special-casing** (DatJavaClass, 2026-05-17): writes execute identically on every scene; the boundary is the gate + floor, not the scene. Next sub-stage: movement/pathfinding choreography via the installed `routinglib`.
+**Write / Co-GM stage activated 2026-05-17 (module 0.4.0).** eval-guard now *classifies* rather than blanket-refuses: `read` runs immediately; `mutating` → §9 gate single-confirm; `destructive` (deletes) → §9 gate **double**-confirm; `db-journal` and `hp` are hard-refused. The relay takes the stricter of Claude's declared `intent` and the classifier. The §9 gate lives in `dispatcher.js` (`requestConfirmation`/`resolveConfirmation`); the proposal (summary + exact code, or damage preview) is rendered as an Approve/Deny card in the chat box; no open box ⇒ auto-deny; ~120 s ⇒ auto-deny. HP changes go **only** through `foundry_apply_damage` (`handlers/damage.js`), which enforces an **absolute ≥1 HP floor (Claude may never reduce any actor below 1 HP; lethal is human-only, not even double-confirm)** atomically (all-or-nothing, no partial writes, race-checked at commit). **No sandbox special-casing** (DatJavaClass, 2026-05-17): writes execute identically on every scene; the boundary is the gate + floor, not the scene. Next sub-stage: movement/pathfinding choreography via the installed `routinglib`.
 
-**Topology (decided 2026-05-17).** The debug channel runs as **the GM's own account** — the earlier "Claude gets its own login" idea is abandoned. GMs run several Foundry windows; one dedicated window holds the Claude Code Chatbox and is the only one with the bridge module **enabled**. All other GM windows keep it **disabled** — the relay closes a duplicate GM `userId` with `4002` (constraint §6.1 / decision #4). `eval` in that one window sees the entire GM world (world data is shared across the user's sessions).
+**Topology (decided 2026-05-17).** The debug channel runs as **the GM's own account** - the earlier "Claude gets its own login" idea is abandoned. GMs run several Foundry windows; one dedicated window holds the Claude Code Chatbox and is the only one with the bridge module **enabled**. All other GM windows keep it **disabled** - the relay closes a duplicate GM `userId` with `4002` (constraint §6.1 / decision #4). `eval` in that one window sees the entire GM world (world data is shared across the user's sessions).
 
 ## 8. Audit logging
 
@@ -368,7 +368,7 @@ Operations *not* requiring confirmation:
 
 ## 10. Build phases
 
-### Phase 1 — Debug bridge, read-only
+### Phase 1 - Debug bridge, read-only
 - Bridge module skeleton (manifest, init hook, settings)
 - WebSocket client in module
 - Local relay process
@@ -376,7 +376,7 @@ Operations *not* requiring confirmation:
 - Handlers: `ping`, all `query.*`, `logs.subscribe`
 - **No eval yet.** Prove the pipe works first.
 
-### Phase 2 — Debug bridge, full
+### Phase 2 - Debug bridge, full
 - Add `eval` handler with proper sandboxing
 - Add result serialization with depth limits
 - **Foundry → Claude Code chat channel** (§6.5): auto-created "Open Claude Code
@@ -384,14 +384,14 @@ Operations *not* requiring confirmation:
   polling-loop responder with `/exit` + `.loop-stop` terminators.
 - **GUI is permitted from Phase 2.** The Phase 1 no-GUI rule was scoped to
   Phase 1. The chat box is a Dialog created via a module-spawned macro (the
-  macro-corpus pattern) — the module itself still ships no Application class.
+  macro-corpus pattern) - the module itself still ships no Application class.
 
-### Phase 3 — AAGM bridge, read-only + low-risk writes
+### Phase 3 - AAGM bridge, read-only + low-risk writes
 - Second capability set in relay config
 - Handlers: `token.move` (NPC only), `time.advance`, `weather.set`, `chat.post` (whisper only), `audit.log`
 - Audit log journal page bootstrapped automatically
 
-### Phase 4 — AAGM bridge, full
+### Phase 4 - AAGM bridge, full
 - Confirmation gate UI in module
 - Public chat posting
 - PC-affecting operations (with gates)
@@ -399,12 +399,12 @@ Operations *not* requiring confirmation:
 
 ## 11. Open questions
 
-These are not blockers — flag them as decisions to make during implementation:
+These are not blockers - flag them as decisions to make during implementation:
 
 1. **Bridge module distribution.** Manifest URL pointing to a GitHub release? Local file install via Forge's "Bazaar Lite" upload? Confirm Forge accepts custom module installs.
 2. **Module reload behavior.** When DatJavaClass edits the module's code locally and pushes a new version, does Foundry hot-reload, or does the browser tab need a refresh? (Almost certainly the latter.)
 3. **WebSocket reconnection.** If the relay restarts, the module should reconnect with exponential backoff. Define max retry interval.
-4. **Multiple Firefox tabs.** What if DatJavaClass accidentally opens two GM tabs? Both bridges connect. Decide: refuse second connection, or accept and let both work. Probably refuse — log a warning.
+4. **Multiple Firefox tabs.** What if DatJavaClass accidentally opens two GM tabs? Both bridges connect. Decide: refuse second connection, or accept and let both work. Probably refuse - log a warning.
 5. **Foundry v13 forward compatibility.** Not now, but note any v12-specific API uses so the migration is bounded.
 
 ## 12. Out of scope (for now)
