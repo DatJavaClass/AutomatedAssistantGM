@@ -242,5 +242,45 @@ Tested on Pathfinder 1e (an 89-link class/features relink after a full compendiu
 
 ---
 
-Want to build your own plug-in? All three plug-ins follow one contract - a world macro as the endpoint behind the gated eval. The bare essentials are in [`Docs/PLUGIN_API_ALPHA.md`](Docs/PLUGIN_API_ALPHA.md).
+# Claude Total Actor Backup (plug-in macro)
+
+Character insurance for the whole table: a paste-in world macro that snapshots entire actors into self-contained "Backup Seed" items and rebuilds them later. Say "Claude, back up all PCs and NPC Bob" at the start of a session and every one of them gets a seed - stats, race, class levels, features, gear, images, biography. When a sheet gets corrupted, a migration goes sideways, or a player experiments a little too hard, the character comes back from the seed. Ported from a battle-tested backup macro and its embedded restore script, restore order and timing quirks intact.
+
+Source: [`plugins/ClaudeTotalActorBackup.js`](plugins/ClaudeTotalActorBackup.js)
+
+### Install
+1. In Foundry, create a new **Script** macro named exactly `Claude Total Actor Backup`.
+2. Paste the contents of `plugins/ClaudeTotalActorBackup.js` into it and save.
+3. Click the macro once. The bare run creates the storage folder below and shows a diagnostic. Bare runs never write seeds.
+
+### Storage it creates (automatically, on first run)
+A **"Claude Actor Backups"** folder in the Items tab. Seeds are ordinary world items with timestamped names, so generations accumulate and the GM can inspect, rename, or hand one out without unlocking anything. `prune` keeps the newest N per actor and only ever touches this folder - seeds you park elsewhere are never deleted by the plug-in.
+
+### How Claude invokes it
+One op per gated eval:
+```js
+return await game.macros.getName("Claude Total Actor Backup").execute({
+  action: "backup", actors: ["Syb", "Danger Dan"] });
+...execute({ action: "list", actor: "Syb" });
+...execute({ action: "restore", seed: "<uuid or seed name>", target: "<actor>" });
+...execute({ action: "prune", actor: "Syb", keep: 5 });
+```
+Each op returns `{ ok, ... }` with its report, or `{ ok:false, error }` on refusal.
+
+### Manual mode - seeds work without Claude
+Every seed carries its own on-use **Restore Actor** script. Drop a copy into an actor's inventory and use it: a confirmation dialog spells out the wipe, then the actor is rebuilt as the snapshotted character and the used copy consumes itself. The GM **or the actor's owner** may trigger it, so a busy GM can toss a seed to a player and keep running the game. The folder originals are the archive: Claude's `restore` op never consumes a seed, while handed-out copies are one-shot.
+
+### Guard rails
+- **Type match is absolute.** A seed only restores onto an actor of its own type. There is no override flag, on either path.
+- **Blank targets only.** `restore` refuses a target that has any items unless `allowNonEmpty:true` is passed, which wipes it first and is declared destructive (double confirm). The manual path's confirmation dialog is the same consent, human-shaped.
+- **Definition, not state.** Current HP, damage, conditions, and active effects are not captured - a seed is the character, not the moment. Restored characters come back at full HP.
+- **Spells are excluded** (they restore as feats - a PF1e known issue). The backup report counts what was left out.
+- **Backup never deletes anything.** Only the explicit `prune` op removes old seeds.
+- **Verify after.** Claude confirms with a separate read after the gate approves; a gated eval's own return value is never proof that a write landed.
+
+Fair warning: more than any other part of AAGM, this plug-in is built **exclusively for Pathfinder 1e**. The restore sequence leans on PF1e's class/race child generation (add the parents, wait for the system to settle, strip its auto-generated defaults, then restore the character's real features), the spell exclusion is a PF1e workaround, and the manual mode rides PF1e item script calls. On other systems, expect nothing.
+
+---
+
+Want to build your own plug-in? All four plug-ins follow one contract - a world macro as the endpoint behind the gated eval. The bare essentials are in [`Docs/PLUGIN_API_ALPHA.md`](Docs/PLUGIN_API_ALPHA.md).
 
