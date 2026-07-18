@@ -1,6 +1,6 @@
 # Foundry-Claude Bridge: Design Document
 
-**Status:** Final Alpha - feature-complete & deployed (module 0.6.4); the **Claude Macro Workshop GUI is a Work In Progress** (debug/refinement ongoing). Live state-of-build: `PHASE1_STATUS.md`.
+**Status:** Final Alpha - feature-complete & deployed (module 0.7.0); the **Claude Macro Workshop GUI is a Work In Progress** (debug/refinement ongoing). Live state-of-build: `PHASE1_STATUS.md`.
 **Last updated:** 2026-07-18
 **Author:** DatJavaClass
 

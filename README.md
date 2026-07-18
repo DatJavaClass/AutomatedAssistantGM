@@ -3,10 +3,14 @@
 
 # AAGM - Foundry ↔ Claude Bridge
 
+**Jump to:** [Installation](#installation) · [Setup](#a-setup-one-time) · [Using it](#b-using-it-once-deployed) · [Troubleshooting](#troubleshooting-quick-hits) · [The Plug-in API](#the-plug-in-api)
+
+**Plug-ins:** [Item Forge](#claude-item-forge-plug-in-macro) · [Foe Forge](#claude-foe-forge-plug-in-macro) · [Link ReForge](#claude-link-reforge-plug-in-macro) · [Total Actor Backup](#claude-total-actor-backup-plug-in-macro)
+
 A localhost bridge between a Forge-hosted **Foundry VTT v12** world (Tested on Pathfinder 1e, should work on other systems) and **Claude** (Code or Chat). Two pieces:
 
 - **`relay/`** - a Node process on your machine. Runs the WebSocket server (talks to the Foundry module) and the MCP server (talks to Claude) in one process. Localhost-only.
-- **`module/`** - the `foundry-bridge` module (v0.5.0) running in the GM's browser tab. Opens a WebSocket out to the relay.
+- **`module/`** - the `foundry-bridge` module (v0.7.0) running in the GM's browser tab. Opens a WebSocket out to the relay.
 
 Claude reaches Foundry **only** through the relay, and every write passes a confirmation gate.
 
@@ -102,6 +106,12 @@ Confirmation gate on all writes · double-confirm on deletes · ≥1 HP floor (l
 ---
 
 > ⚠️ **Known operator hazard: Claude's Fireball obsession.** The assistant driving this bridge has been observed reaching for *Fireball* as the answer to essentially any problem - including corrupted actors (immune: they're JSON), incorporeal threats, and the occasional merge conflict. If a fix proposal includes "and then a 8d6 evocation," apply the ≥1 HP floor, deny the gate, and gently suggest a saving throw. The spell list is wider than it looks.
+
+---
+
+## The Plug-in API
+
+The bridge is extensible, and the four plug-ins below are the proof: each one is just a world macro serving as an endpoint behind the gated eval - scope object in, `{ ok }` / `{ ok:false, error }` out, bare run as a diagnostic. The alpha contract is written up in [`Docs/PLUGIN_API_ALPHA.md`](Docs/PLUGIN_API_ALPHA.md); build your own and it rides the same Approve/Deny gate as everything else.
 
 ---
 

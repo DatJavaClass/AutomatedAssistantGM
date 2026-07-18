@@ -2,7 +2,7 @@
   "id": "foundry-bridge",
   "title": "AAGM Project",
   "description": "Bridge module that exposes a controlled command channel from a running Foundry VTT instance to a local relay process, enabling Claude (Code/Chat) to assist with debug and AAGM workflows.",
-  "version": "0.5.0",
+  "version": "0.7.0",
   "compatibility": {
     "minimum": "12",
     "verified": "12.343",
