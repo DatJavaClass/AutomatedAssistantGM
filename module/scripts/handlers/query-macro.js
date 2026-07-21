@@ -1,5 +1,4 @@
-// query.macro handler - return a macro's source plus author/scope/type.
-// Accepts either macroId or name (name resolves to the first match).
+// query.macro: source + author/scope/type by id or name.
 
 export async function handleQueryMacro(params) {
   const { macroId, name } = params || {};

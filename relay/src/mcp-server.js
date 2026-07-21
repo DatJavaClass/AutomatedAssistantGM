@@ -1,11 +1,5 @@
-// MCP server (Streamable HTTP transport) exposing the foundry_* tools that
-// Claude clients use to drive the bridge. Each tool round-trips through the
-// dispatcher to the WS-connected bridge module.
-//
-// Transport choice: Streamable HTTP rather than stdio, because the relay is a
-// long-running shared process - both Claude Code (debug) and Claude Chat
-// (AAGM, eventually) point at the same MCP endpoint. stdio would require
-// Claude Code to own the relay's lifecycle.
+/* MCP server (Streamable HTTP) exposing the foundry_* tools.
+   HTTP not stdio: the relay is long-running and shared. */
 
 import http from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -22,12 +16,8 @@ export async function startMcpServer({ config, dispatcher, audit, promptQueue })
     throw new Error(`refusing to bind MCP server to non-localhost address "${host}"`);
   }
 
-  // A fresh McpServer per request. The McpServer wraps one Protocol instance
-  // that can only be connected to a single transport at a time; with the
-  // long-poll foundry_get_prompts holding a request open ~25s, a second
-  // overlapping tool call against a shared server throws "Already connected to
-  // a transport". Per-request server + transport is the stateless pattern and
-  // costs nothing here (registerTools is just closures + zod schemas).
+  /* Fresh McpServer per request: the ~25s long-poll makes a shared
+     one throw "Already connected to a transport". Costs nothing. */
   const makeServer = () => {
     const s = new McpServer({ name: 'foundry-bridge-relay', version: '0.3.0' });
     registerTools(s, dispatcher, audit, promptQueue);
@@ -75,12 +65,8 @@ async function handlePost(req, res, makeServer, audit) {
       res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32700, message: 'parse error' }, id: null }));
       return;
     }
-    // sessionIdGenerator: undefined → true stateless per the SDK. With a
-    // generator function set, the transport runs in stateful mode and rejects
-    // any non-initialize request that lacks a session ID matching this
-    // transport's - but we tear the transport down after every response, so
-    // the next request never has a matching session and gets "Server not
-    // initialized". Stateless mode skips that check entirely.
+    /* undefined = stateless per the SDK. Stateful mode would reject every
+       follow-up: the transport is torn down after each response. */
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
@@ -267,7 +253,7 @@ function registerTools(server, dispatcher, audit, promptQueue) {
           `Not executed - ${decision.reason}. DatJavaClass did not approve. Tell him plainly; do not retry ` +
           `unless he asks.` });
       }
-      // Approved: extended window - choreography/animation can run long.
+      // Approved: extended window, choreography runs long.
       const r = await dispatcher.sendToBridge({
         capabilitySet: PHASE1_CAPABILITY_SET, method: 'eval', params: { code, awaitResult, captureConsole }, timeoutMs: 300_000,
       });
@@ -315,7 +301,7 @@ function registerTools(server, dispatcher, audit, promptQueue) {
       const result = await callBridge('damage', { targets, amount, commit: true });
       audit.log('damage.commit', { opId, committed: !!result.committed });
       if (!result.committed) {
-        // Plan→approve→commit race: a target dropped to lethal in between.
+        // Plan->approve->commit race: a target went lethal between.
         return asText({ refused: true, reason:
           `Not applied - between approval and execution a target reached the 1 HP floor. ` +
           `Reducing anyone below 1 HP is human-only; tell DatJavaClass.`, preview: result.preview });
@@ -324,10 +310,8 @@ function registerTools(server, dispatcher, audit, promptQueue) {
     }
   );
 
-  // --- Phase 2: Foundry → Claude Code chat channel ---------------------------
-  // These two run the opposite direction from everything above: DatJavaClass types in
-  // the in-Foundry "Open Claude Code Chat" box, and *this* Claude Code session
-  // (driven by a /loop) drains and answers.
+  /* Phase 2 chat channel: the opposite direction. DatJavaClass types
+     in the box; a /loop-driven Claude Code drains and answers. */
 
   server.tool(
     'foundry_get_prompts',
@@ -371,7 +355,7 @@ function registerTools(server, dispatcher, audit, promptQueue) {
     }
   );
 
-  // --- Claude Macro Workshop (separate "Claude Macro Workshop" window) --------
+  // Claude Macro Workshop window, push and read.
 
   server.tool(
     'foundry_workshop_set',

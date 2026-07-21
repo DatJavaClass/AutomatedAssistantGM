@@ -1,76 +1,13 @@
-/**
- * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║                          CLAUDE LINK REFORGE                              ║
- * ║             plug-in macro for the AAGM Foundry-Claude bridge              ║
- * ╠══════════════════════════════════════════════════════════════════════════╣
- * ║  WHAT IT DOES:                                                            ║
- * ║  Repairs broken compendium UUID links after a world migration, server     ║
- * ║  transfer, or compendium re-import. The caller (normally Claude, via the  ║
- * ║  bridge's gated eval) drives a three-op flow: scan finds every broken     ║
- * ║  reference grouped by dead pack id, dryrun resolves them against a        ║
- * ║  proposed old-pack -> new-pack mapping and reports match rates without    ║
- * ║  writing, apply executes exactly the dry-run mapping.                     ║
- * ║                                                                           ║
- * ║  ANCESTRY: mechanical core ported from "Repair Linkages" and "Grubby -    ║
- * ║  Compendium Linkage Repair" (proven name-match relink of pf1 link         ║
- * ║  arrays), generalized: instead of hard-wiring classAssociations or        ║
- * ║  supplements, every document's data is walked and ALL Compendium UUID     ║
- * ║  references found - any system.links.* array, @UUID enrichers in text,   ║
- * ║  journal pages. Resolution is by _id first (migrations that preserve     ║
- * ║  ids), then by name: exact lowercase match, then the Repair Linkages     ║
- * ║  cleaning rules (strip "N%", trailing parentheticals, "at Xth level").   ║
- * ║                                                                           ║
- * ║  INVOCATION (one op per gated eval):                                      ║
- * ║    await game.macros.getName("Claude Link ReForge").execute({             ║
- * ║      action: "scan", packs: ["world.x"]      // packs optional; default   ║
- * ║    });                                        // = all world packs. Pass  ║
- * ║                                               // module packs (e.g. Forge ║
- * ║                                               // shared comps) explicitly.║
- * ║    ...execute({ action: "dryrun",                                         ║
- * ║      mapping: { "world.dead-pack": "world.live-pack" }, packs? });        ║
- * ║    ...execute({ action: "apply",                                          ║
- * ║      mapping: {...}, confirmHash: "lr-xxxxxxxx", packs? });               ║
- * ║  Returns { ok, ... } / { ok:false, error } per the plug-in contract.      ║
- * ║  Run bare (hotbar click, no args) for a diagnostic dialog - no writes.    ║
- * ║                                                                           ║
- * ║  SAFETY MODEL (structural, not prompt discipline):                        ║
- * ║  - scan is read-only. dryrun writes ONE thing: a receipt flag on this     ║
- * ║    macro ({hash, mapping}) - so its gated approval is the GM approving    ║
- * ║    the MAPPING itself.                                                    ║
- * ║  - apply refuses unless confirmHash matches BOTH a fresh hash of the      ║
- * ║    passed job AND the stored receipt (30 min TTL). A re-inferred mapping  ║
- * ║    after approval mismatches and blocks. No dryrun, no apply. Ever.       ║
- * ║  - Only the leaf string holding each broken UUID is rewritten; sibling    ║
- * ║    fields (name, level, anything custom) are preserved untouched.         ║
- * ║  - Unresolved / bonus-feat / malformed links are kept as-is + reported.   ║
- * ║  - Packs are unlocked around the write and relocked after.                ║
- * ║  - Ops are time-boxed ~90s (gate bound is ~120s); partial runs report     ║
- * ║    what remains and are safe to re-run (already-fixed links drop out).    ║
- * ║  - flags/_stats are NOT walked: provenance pointers (compendiumSource,    ║
- * ║    core.sourceId) are metadata, not live links - rewriting them blind is  ║
- * ║    how you corrupt module state.                                          ║
- * ║  - Verify AFTER apply with a fresh scan call - never trust in-eval        ║
- * ║    read-back (stale read-back rule).                                      ║
- * ║                                                                           ║
- * ║  PREREQUISITES: GM only. Save as a Script macro named exactly             ║
- * ║  "Claude Link ReForge".                                                   ║
- * ╚══════════════════════════════════════════════════════════════════════════╝
- */
+/* Claude Link ReForge - AAGM plug-in. Repairs broken compendium UUID links.
+   scan (read) -> dryrun (stores receipt) -> apply (hash-locked write).
+   Full docs: README. Contract: Docs/PLUGIN_API_ALPHA.md. GM-only. */
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 1: GUARDS
-// ═══════════════════════════════════════════════════════════════
 if (!game.user.isGM) return ui.notifications.warn("Claude Link ReForge is a GM tool.");
 
-const TAG = "[ClaudeLinkReForge]";
-const VERSION = "0.1.0";
-const MACRO_NAME = "Claude Link ReForge";
+const TAG = "[ClaudeLinkReForge]", VERSION = "0.1.0", MACRO_NAME = "Claude Link ReForge";
 const req = (typeof scope === "object" && scope) ? scope : {};
-
-const FLAG_SCOPE = "world";
-const FLAG_KEY = "linkReforgeReceipt";
-const RECEIPT_TTL_MS = 30 * 60 * 1000;
-const TIME_BOX_MS = 90 * 1000;
+const FLAG_SCOPE = "world", FLAG_KEY = "linkReforgeReceipt";
+const RECEIPT_TTL_MS = 30 * 60 * 1000, TIME_BOX_MS = 90 * 1000; // gate bound is ~120s
 const deadline = Date.now() + TIME_BOX_MS;
 
 const fail = (error, extra = {}) => {
@@ -82,20 +19,17 @@ const fail = (error, extra = {}) => {
 const self = game.macros.getName(MACRO_NAME);
 if (!self) return fail(`This macro must be named exactly "${MACRO_NAME}" (receipt storage is by name).`);
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 2: SHARED MACHINERY
-// ═══════════════════════════════════════════════════════════════
+// Shared machinery.
 
-// Package id + pack name are single dot-free segments in practice; the
-// optional middle segment absorbs the modern Type-qualified UUID form.
+// Optional middle segment absorbs Type-qualified UUID forms.
 const UUID_RE = /Compendium\.([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\.(?:([A-Za-z]+)\.)?([a-zA-Z0-9]{16})/g;
 
-// Grubby CLR's bonus-feat rule: these can't be resolved by name, human fixes them.
+// Bonus feats can't resolve by name; human fixes them.
 const defaultSkip = (n) => { const s = n.toLowerCase(); return s.includes("bonus feat") || s.endsWith("(b)"); };
 const skipRx = req.skipNames ? new RegExp(req.skipNames, "i") : null;
 const isSkipName = (n) => n ? (skipRx ? skipRx.test(n) : defaultSkip(n)) : false;
 
-// Name tiers: Grubby CLR exact match, then Repair Linkages cleaning.
+// Name tiers: exact match, then cleaning rules.
 const nameExact = (n) => n.toLowerCase().trim();
 const nameCleaned = (n) => n
     .replace(/\s*\d+%\s*$/i, "")
@@ -103,8 +37,7 @@ const nameCleaned = (n) => n
     .replace(/\s+at\s+\d+(st|nd|rd|th)\s+level/i, "")
     .trim().toLowerCase();
 
-// FNV-1a over the canonical job spec. The hash binds mapping + scan scope +
-// skip rule: change any of them after the dryrun and apply refuses.
+// FNV-1a job hash; change anything, apply refuses.
 const jobHash = (r) => {
     const spec = JSON.stringify({
         mapping: Object.keys(r.mapping ?? {}).sort().map(k => [k, r.mapping[k]]),
@@ -116,8 +49,7 @@ const jobHash = (r) => {
     return "lr-" + h.toString(16).padStart(8, "0");
 };
 
-// Every Compendium UUID inside one string. An @UUID[...]{Label} label is the
-// best name hint; otherwise the nearest enclosing object's own .name is used.
+// Every Compendium UUID in one string; @UUID label beats hint.
 function scanString(str, path, nameHint, out) {
     UUID_RE.lastIndex = 0;
     let m;
@@ -129,7 +61,7 @@ function scanString(str, path, nameHint, out) {
     }
 }
 
-// Provenance metadata looks like a link but isn't one - see header.
+// Provenance metadata (compendiumSource, core.sourceId) is not a live link.
 const ROOT_SKIP = new Set(["_id", "_stats", "flags", "ownership", "sort", "folder"]);
 
 function walkValue(value, path, nameHint, out) {
@@ -142,8 +74,7 @@ function walkValue(value, path, nameHint, out) {
 }
 
 function walkDoc(docObj, out) {
-    // Entries walked individually so the DOCUMENT's own name never becomes a
-    // hint - a bare uuid in a description would otherwise name-match its host.
+    // Per-entry walk: the doc's own name is never a hint.
     for (const [k, v] of Object.entries(docObj)) {
         if (ROOT_SKIP.has(k)) continue;
         walkValue(v, [k], null, out);
@@ -152,7 +83,7 @@ function walkDoc(docObj, out) {
 
 const defaultPackIds = () => game.packs.filter(p => p.metadata.packageType === "world").map(p => p.collection);
 
-// Load docs, walk them, mark each reference live/broken via pack indexes.
+// Load, walk, mark live/broken via pack indexes.
 async function collectRefs(packIds) {
     const occs = [], scanned = [], skipped = [], docRefs = new Map();
     for (const pid of packIds) {
@@ -182,8 +113,7 @@ async function collectRefs(packIds) {
     return { occs, scanned, skipped, docRefs };
 }
 
-// Resolve broken refs against the mapping. Mutates each occ with
-// resolution + newUuid; returns per-pair stats.
+// Mutates occs with resolution + newUuid; returns pair stats.
 async function resolveMapping(broken, mapping) {
     const lookups = {}, pairs = {};
     for (const live of new Set(Object.values(mapping))) {
@@ -196,7 +126,7 @@ async function resolveMapping(broken, mapping) {
             idMap.set(d.id, d.uuid);
             const ek = nameExact(d.name), ck = nameCleaned(d.name);
             if (exactMap.has(ek)) collisions++;
-            exactMap.set(ek, d.uuid);   // last wins - matches both ancestor macros
+            exactMap.set(ek, d.uuid); // last wins - matches both ancestor macros
             cleanMap.set(ck, d.uuid);
         }
         lookups[live] = { idMap, exactMap, cleanMap, collisions, docCount: docs.length };
@@ -225,9 +155,7 @@ async function resolveMapping(broken, mapping) {
 
 const packIds = Array.isArray(req.packs) && req.packs.length ? req.packs : defaultPackIds();
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 3: BARE RUN → DIAGNOSTIC DIALOG
-// ═══════════════════════════════════════════════════════════════
+// Bare run: diagnostic dialog, no writes.
 if (!req.action) {
     const receipt = self.getFlag(FLAG_SCOPE, FLAG_KEY);
     const age = receipt ? Math.round((Date.now() - receipt.ts) / 60000) : null;
@@ -248,9 +176,7 @@ if (!req.action) {
     return { ok: true, diagnostic: true, version: VERSION };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 4: SCAN (read-only)
-// ═══════════════════════════════════════════════════════════════
+// scan: read-only.
 if (req.action === "scan") {
     const { occs, scanned, skipped } = await collectRefs(packIds);
     const broken = occs.filter(o => o.broken);
@@ -272,9 +198,7 @@ if (req.action === "scan") {
     };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 5: DRYRUN (read + receipt flag write)
-// ═══════════════════════════════════════════════════════════════
+// dryrun: read plus receipt flag write.
 if (req.action === "dryrun") {
     if (!req.mapping || typeof req.mapping !== "object" || !Object.keys(req.mapping).length)
         return fail("dryrun needs a non-empty mapping {deadPackId: livePackId}.");
@@ -294,9 +218,7 @@ if (req.action === "dryrun") {
     };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 6: APPLY (gated write, receipt-locked)
-// ═══════════════════════════════════════════════════════════════
+// apply: gated write, receipt-locked.
 if (req.action === "apply") {
     if (!req.mapping || !Object.keys(req.mapping ?? {}).length) return fail("apply needs the dry-run mapping.");
     if (!req.confirmHash) return fail("apply needs confirmHash from the dryrun report.");
@@ -337,7 +259,7 @@ if (req.action === "apply") {
             const done = new Set();
             for (const o of list) {
                 const dk = `${o.path.join(".")}|${o.uuid}`;
-                if (done.has(dk)) continue;   // same dead uuid twice in one string: one global replace covers it
+                if (done.has(dk)) continue; // one global replace covers repeats
                 done.add(dk);
                 let node = clone;
                 for (let i = 0; i < o.path.length - 1; i++) node = node[o.path[i]];
@@ -346,8 +268,7 @@ if (req.action === "apply") {
                 refsFixed++;
                 counts[o.resolution]++;
             }
-            // Arrays must be written whole: truncate each path at its first
-            // array index and send that branch from the mutated clone.
+            // Arrays write whole: truncate path at first array index.
             const keys = new Set();
             for (const o of list) {
                 const n = o.path.findIndex(seg => typeof seg === "number");
@@ -362,7 +283,7 @@ if (req.action === "apply") {
         for (const p of unlocked) await p.configure({ locked: true });
     }
 
-    if (!partial) await self.unsetFlag(FLAG_SCOPE, FLAG_KEY);   // one receipt, one apply
+    if (!partial) await self.unsetFlag(FLAG_SCOPE, FLAG_KEY); // one receipt, one apply
     const skippedPolicy = broken.filter(o => o.resolution === "skippedPolicy").length;
     const unresolved = broken.filter(o => o.resolution === "unresolved").length;
     return {

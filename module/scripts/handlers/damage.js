@@ -1,15 +1,6 @@
-// damage handler - the ONLY path that changes HP. Absolute rule (DatJavaClass):
-// Claude Code may never reduce any actor below 1 HP; lethal blows are
-// human-only. Enforced here on live data, not by heuristics:
-//
-//   commit:false → plan only. Returns per-target before→after + lethal flag.
-//                  Never writes. The relay refuses the whole op if lethal.
-//   commit:true  → re-checks the floor on fresh data and applies ATOMICALLY:
-//                  if ANY target would land < 1 HP, nothing is written and it
-//                  throws. No partial application.
-//
-// Damage hits temp HP first, then value. This manipulates state; it does not
-// adjudicate DR/resistances (DESIGN §12) - the caller passes the final amount.
+/* damage handler: the only HP path. Never below 1 HP; lethal is human-only.
+   commit:false plans (before->after + lethal); commit:true writes atomically.
+   Hits temp HP first, then value; caller passes the final amount (no DR here). */
 
 async function resolveTarget(ref) {
   const s = String(ref ?? '').trim();
@@ -28,7 +19,7 @@ async function resolveTarget(ref) {
   const ci = game.actors.find((a) => a.name.toLowerCase() === low);
   if (ci) return ci;
   const partial = game.actors.filter((a) => a.name.toLowerCase().includes(low));
-  return partial.length === 1 ? partial[0] : null;   // ambiguous → unresolved
+  return partial.length === 1 ? partial[0] : null; // ambiguous -> unresolved
 }
 
 function hpOf(actor) {
@@ -65,14 +56,13 @@ export async function handleDamage({ targets, amount, commit } = {}) {
   });
   const lethal = preview.some((p) => p.lethal);
 
-  // Lethal - for plan OR commit - is an atomic structured refusal: never a
-  // throw, never a partial write. (The relay refuses before confirm; this also
-  // catches a plan→commit race where HP dropped after approval.)
+  /* Lethal: structured refusal, never throw or partial write.
+     Also catches a plan->commit HP-drop race. */
   if (!commit || lethal) {
     return { committed: false, lethal, amount: amt, preview };
   }
 
-  // Commit, non-lethal: re-read live HP and verify ALL before writing ANY.
+  // Commit: re-read HP, verify all before writing any.
   const writes = [];
   for (const { actor } of resolved) {
     const hp = hpOf(actor);

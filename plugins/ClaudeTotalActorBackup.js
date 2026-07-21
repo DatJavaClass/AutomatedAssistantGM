@@ -1,80 +1,16 @@
-/**
- * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║                       CLAUDE TOTAL ACTOR BACKUP                           ║
- * ║             plug-in macro for the AAGM Foundry-Claude bridge              ║
- * ╠══════════════════════════════════════════════════════════════════════════╣
- * ║  WHAT IT DOES:                                                            ║
- * ║  Snapshots entire actors into self-contained "Backup Seed" items and      ║
- * ║  restores them onto blank actors. The caller (normally Claude, via the    ║
- * ║  bridge's gated eval) names the actors; this macro builds the seeds,      ║
- * ║  files them in a "Claude Actor Backups" folder (Items tab), and rebuilds  ║
- * ║  a character from a seed - stats, items, classes at level, images,        ║
- * ║  biography.                                                               ║
- * ║                                                                           ║
- * ║  ANCESTRY: mechanical core ported from "Grubby's Total Actor Backup" +   ║
- * ║  its seed's on-use restore script. Their hard-won rules are kept:        ║
- * ║  - Snapshot lives in item FLAGS, never the description (ProseMirror      ║
- * ║    HTML-encodes description text and corrupts JSON).                      ║
- * ║  - Items stored by verified source UUID where one resolves, full data    ║
- * ║    blob where it doesn't (world-created items).                           ║
- * ║  - Spells excluded (PF1e known issue: they restore as feats).             ║
- * ║  - Runtime state (current HP, damage, conditions, active effects) is     ║
- * ║    deliberately NOT captured - a seed is a character definition.          ║
- * ║  - Restore order: race/class parents first -> settle delay for the       ║
- * ║    system's async child generation -> DELTA-STRIP everything it auto-    ║
- * ║    generated (defaults are wrong for archetypes/variants; the snapshot   ║
- * ║    is truth) -> add the snapshot's own features/traits/equipment.        ║
- * ║  - Live placed tokens are updated across scenes (actor.update alone      ║
- * ║    does not touch them).                                                  ║
- * ║  Old Grubby seeds restore fine: both flag keys are read.                  ║
- * ║                                                                           ║
- * ║  INVOCATION (one op per gated eval):                                      ║
- * ║    await game.macros.getName("Claude Total Actor Backup").execute({       ║
- * ║      action: "backup", actors: ["Syb", "Danger Dan"] });   // write       ║
- * ║    ...execute({ action: "list", actor: "Syb" });           // read        ║
- * ║    ...execute({ action: "restore",                                        ║
- * ║      seed: "<uuid or exact seed name>", target: "<actor>",                ║
- * ║      allowNonEmpty: false });   // write; destructive if allowNonEmpty    ║
- * ║    ...execute({ action: "prune", actor: "Syb", keep: 5 }); // destructive ║
- * ║  Returns { ok, ... } / { ok:false, error }. Run bare (hotbar click) for   ║
- * ║  a diagnostic dialog - creates the backup compendium, writes no seeds.    ║
- * ║                                                                           ║
- * ║  RESTORE GUARDS (built in, per DatJavaClass):                             ║
- * ║  - Target actor TYPE must match the snapshot's. No override exists.       ║
- * ║  - Target must be BLANK (zero embedded items). A non-blank target is      ║
- * ║    refused unless allowNonEmpty:true, which wipes ALL its items first     ║
- * ║    and is declared destructive (double confirm at the gate).              ║
- * ║  - Seeds are never deleted by restore - they sit in the folder and are    ║
- * ║    reusable. (Grubby seeds self-deleted from inventory; plugin seeds      ║
- * ║    are library copies.) Pruning old seeds is its own explicit op.         ║
- * ║  - Backup never deletes anything, so its gate stays a single confirm.     ║
- * ║  - MANUAL USE (pf1): seeds carry an on-use restore script - GM OR the     ║
- * ║    actor's owner can use one from inventory; it confirms, wipes that      ║
- * ║    actor, rebuilds it from the seed, and consumes the used copy. The      ║
- * ║    folder original stays. Non-pf1 systems ignore the script; Claude's     ║
- * ║    restore op still works.                                                ║
- * ║  - Verify AFTER any op with a separate read - never trust in-eval         ║
- * ║    read-back (stale read-back rule).                                      ║
- * ║                                                                           ║
- * ║  PREREQUISITES: GM only. Save as a Script macro named exactly             ║
- * ║  "Claude Total Actor Backup".                                             ║
- * ╚══════════════════════════════════════════════════════════════════════════╝
- */
+/* Claude Total Actor Backup - AAGM plug-in. Snapshots actors into seed items.
+   Ops: backup, list, restore, prune. Seeds carry a manual on-use restore.
+   Full docs: README. Contract: Docs/PLUGIN_API_ALPHA.md. GM-only. */
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 1: GUARDS
-// ═══════════════════════════════════════════════════════════════
 if (!game.user.isGM) return ui.notifications.warn("Claude Total Actor Backup is a GM tool.");
 
-const TAG = "[ClaudeTAB]";
-const VERSION = "0.1.0";
+const TAG = "[ClaudeTAB]", VERSION = "0.1.0";
 const req = (typeof scope === "object" && scope) ? scope : {};
-
 const FOLDER_NAME = "Claude Actor Backups";
-const FLAG_KEY = "claude-tab";                 // written; "grubby-tab" is read too
-const EXCLUDED_TYPES = ["spell"];              // PF1e known issue: spells restore as feats
-const PARENT_TYPES = ["race", "class"];        // added first; the system generates children
-const SETTLE_MS = 1500;                        // async child generation; 350 was not enough
+const FLAG_KEY = "claude-tab"; // written; "grubby-tab" is read too
+const EXCLUDED_TYPES = ["spell"]; // PF1e known issue: spells restore as feats
+const PARENT_TYPES = ["race", "class"]; // added first; the system generates children
+const SETTLE_MS = 1500; // async child generation; 350 was not enough
 const TIME_BOX_MS = 90 * 1000;
 const deadline = Date.now() + TIME_BOX_MS;
 
@@ -84,13 +20,9 @@ const fail = (error, extra = {}) => {
     return { ok: false, error, ...extra };
 };
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 2: SHARED MACHINERY
-// ═══════════════════════════════════════════════════════════════
+// Shared machinery.
 
-// Storage folder in the Items sidebar, auto-created on first use. World items
-// beat a compendium here: the GM can eyeball, rename, or hand a seed to a
-// player without unlocking anything, and prune keeps the count small.
+// World folder beats a compendium: eyeball, rename, hand off.
 async function ensureFolder() {
     let folder = game.folders.find(f => f.type === "Item" && f.name === FOLDER_NAME && !f.folder);
     if (!folder) {
@@ -100,7 +32,7 @@ async function ensureFolder() {
     return folder;
 }
 
-// Partial-name resolve over world actors; ambiguity is a refusal, not a guess.
+// Partial-name resolve; ambiguity is a refusal, not a guess.
 function resolveActor(query) {
     const q = String(query);
     const byId = game.actors.get(q);
@@ -115,7 +47,7 @@ function resolveActor(query) {
 
 const getSnapshot = (item) => item?.flags?.[FLAG_KEY]?.snapshot ?? item?.flags?.["grubby-tab"]?.snapshot ?? null;
 
-// Seed lookup: uuid first, then exact name in the backup pack, then world items.
+// Seed lookup: uuid first, then exact world name.
 async function resolveSeed(ref) {
     if (typeof ref === "string" && ref.includes(".")) {
         const doc = await fromUuid(ref).catch(() => null);
@@ -127,7 +59,7 @@ async function resolveSeed(ref) {
     return { error: `No backup seed named or identified by "${ref}".` };
 }
 
-// Snapshot builder - Grubby TAB v1 schema, unchanged (old seeds stay compatible).
+// Grubby TAB v1 schema, unchanged: old seeds stay compatible.
 async function buildSnapshot(actor) {
     const backable = actor.items.filter(i => !EXCLUDED_TYPES.includes(i.type));
     const excluded = actor.items.size - backable.length;
@@ -165,12 +97,8 @@ async function buildSnapshot(actor) {
     };
 }
 
-// Manual restore, embedded on every seed as a pf1 on-use script call. A lean
-// port of the plugin's own restore sequence, self-contained so a seed handed
-// to a player works with no macro involved. GM or the actor's owner only; the
-// used copy is consumed (Grubby heritage) - the folder original is the
-// archive and is never consumed. No template literals inside: this string is
-// carried inside the seed item data.
+// Self-contained pf1 on-use restore, embedded in every seed.
+// No template literals inside: it ships as seed item data.
 const MANUAL_RESTORE = `// Claude TAB - manual seed restore. Wipes this actor, rebuilds from the seed.
 (async () => {
   if (!item || !actor) return ui.notifications.error("Use this seed from an actor's inventory.");
@@ -242,8 +170,7 @@ const MANUAL_RESTORE = `// Claude TAB - manual seed restore. Wipes this actor, r
   ChatMessage.create({ content: "<p><b>Backup Seed used:</b> " + snapshot.actorName + " restored." + (failed.length ? " " + failed.length + " item(s) could not be restored." : "") + "</p>", whisper: ChatMessage.getWhisperRecipients("GM") });
 })();`;
 
-// Seeds are built inline - no dependency on a template item, so the plug-in
-// works in any world. "loot" where the system has it, else the first type.
+// Inline seeds, no template item: "loot" or the first type.
 function seedItemData(snapshot) {
     const types = (game.documentTypes?.Item ?? []).filter(t => t !== "base");
     const type = types.includes("loot") ? "loot" : types[0];
@@ -252,9 +179,9 @@ function seedItemData(snapshot) {
         name: `${snapshot.actorName} - Backup Seed [${stamp}]`,
         type,
         img: snapshot.portraitImg || "icons/magic/time/hourglass-yellow-green.webp",
-        flags: { [FLAG_KEY]: { snapshot } },
-        // pf1 loot must be subType "gear" - "misc" loot gets no Use action,
-        // which would strand the embedded manual-restore script.
+        flags: { [FLAG_KEY]: { snapshot } }, // flags, never description: ProseMirror corrupts JSON
+        /* pf1 loot must be subType "gear" - "misc" loot gets no Use action,
+           which would strand the embedded manual-restore script. */
         system: { ...(type === "loot" ? { subType: "gear" } : {}), scriptCalls: [{
             _id: foundry.utils.randomID(), name: "Restore Actor", type: "script",
             value: MANUAL_RESTORE, category: "use", hidden: false
@@ -269,9 +196,7 @@ function seedItemData(snapshot) {
     };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 3: BARE RUN → DIAGNOSTIC DIALOG
-// ═══════════════════════════════════════════════════════════════
+// Bare run: diagnostic dialog, ensures storage.
 if (!req.action) {
     const folder = await ensureFolder();
     const seedCount = game.items.filter(i => getSnapshot(i)).length;
@@ -290,15 +215,12 @@ if (!req.action) {
     return { ok: true, diagnostic: true, version: VERSION, folder: FOLDER_NAME, seeds: seedCount };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 4: BACKUP (write - creates seeds, deletes nothing)
-// ═══════════════════════════════════════════════════════════════
+// backup: creates seeds, deletes nothing.
 if (req.action === "backup") {
     const queries = Array.isArray(req.actors) ? req.actors : (req.actors ? [req.actors] : []);
     if (!queries.length) return fail(`backup needs actors: ["name or id", ...].`);
 
-    // Resolve ALL names before writing anything - one bad name fails the op
-    // while it is still a no-op, so a retry is clean.
+    // Resolve all names first: fail while still a no-op.
     const actors = [];
     for (const q of queries) {
         const r = resolveActor(q);
@@ -333,9 +255,7 @@ if (req.action === "backup") {
     };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 5: LIST (read-only)
-// ═══════════════════════════════════════════════════════════════
+// list: read-only.
 if (req.action === "list") {
     const folder = await ensureFolder();
     const seeds = [];
@@ -348,9 +268,7 @@ if (req.action === "list") {
     return { ok: true, action: "list", seeds: filtered, note: "Loose entries live outside the backup folder (old Grubby seeds land here) - restorable, but never pruned." };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 6: RESTORE (write; destructive when allowNonEmpty wipes)
-// ═══════════════════════════════════════════════════════════════
+// restore: write; destructive when allowNonEmpty wipes.
 if (req.action === "restore") {
     if (!req.seed) return fail("restore needs seed: <uuid or exact seed name>.");
     if (!req.target) return fail("restore needs target: <actor name or id>.");
@@ -364,19 +282,18 @@ if (req.action === "restore") {
     if (ar.error) return fail(ar.error);
     const actor = ar.actor;
 
-    // HARD guard, no override: a seed only lands on its own actor type.
+    // Hard guard, no override: seed only lands on its own type.
     if (actor.type !== snapshot.actorType)
         return fail(`Type mismatch: seed is a "${snapshot.actorType}" snapshot, target "${actor.name}" is "${actor.type}". Spawn a blank ${snapshot.actorType} actor instead.`);
 
-    // Blank-target guard: refuse a populated actor unless the wipe is explicit.
+    // Blank-target guard: the wipe must be explicit.
     if (actor.items.size > 0) {
         if (!req.allowNonEmpty)
             return fail(`Target "${actor.name}" is not blank (${actor.items.size} item(s)). Restore onto a blank actor, or pass allowNonEmpty:true to WIPE it first (destructive - double confirm).`);
         await actor.deleteEmbeddedDocuments("Item", actor.items.map(i => i.id));
     }
 
-    // Stats, images, name, biography - snapshot values, not runtime state.
-    // HP lands at snapshot max: a restored character comes back whole.
+    // Snapshot values, not runtime state; HP lands at max.
     const statUpdates = {};
     for (const [k, v] of Object.entries(snapshot.abilities ?? {})) statUpdates[`system.abilities.${k}.value`] = v;
     if (snapshot.hpMax) {
@@ -392,7 +309,7 @@ if (req.action === "restore") {
     }
     await actor.update(statUpdates);
 
-    // actor.update never touches tokens already on a scene - sweep them.
+    // actor.update skips placed tokens - sweep them.
     let liveTokens = 0;
     try {
         for (const scene of game.scenes) {
@@ -438,9 +355,7 @@ if (req.action === "restore") {
 
     await new Promise(r => setTimeout(r, SETTLE_MS));
 
-    // Everything that appeared since the parents went in is the system's
-    // DEFAULT build for that class/race - wrong for archetypes and variants.
-    // Strip it; the snapshot's own children are the character.
+    // Auto-generated defaults are wrong for archetypes - strip them.
     const autoGen = actor.items.filter(i => !idsBefore.has(i.id)).map(i => i.id);
     if (autoGen.length) await actor.deleteEmbeddedDocuments("Item", autoGen);
 
@@ -460,14 +375,11 @@ if (req.action === "restore") {
     };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 7: PRUNE (destructive - the only op that deletes seeds)
-// ═══════════════════════════════════════════════════════════════
+// prune: the only op that deletes seeds.
 if (req.action === "prune") {
     const keep = Number.isInteger(req.keep) && req.keep > 0 ? req.keep : 5;
     const folder = await ensureFolder();
-    // Only seeds INSIDE the backup folder are prunable - loose seeds (incl.
-    // legacy Grubby ones) are the GM's to manage and are never touched.
+    // Folder seeds only; loose seeds are the GM's.
     const byActor = new Map();
     for (const i of game.items.filter(i => i.folder?.id === folder.id)) {
         const s = getSnapshot(i);

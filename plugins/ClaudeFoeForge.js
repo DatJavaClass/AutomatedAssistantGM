@@ -1,83 +1,17 @@
-/**
- * ╔═══════════════════════════════════════════════════════════════════════════╗
- * ║                           CLAUDE FOE FORGE                                ║
- * ║              plug-in macro for the AAGM Foundry-Claude bridge             ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║  WHAT IT DOES:                                                            ║
- * ║  Files a finished pf1 monster / hostile-NPC actor into the configured     ║
- * ║  foe destination. The caller (normally Claude, via the bridge's gated     ║
- * ║  eval) supplies complete actor data; this macro validates it, resolves    ║
- * ║  the destination at runtime from the "Claude Foe Forge Config" journal,   ║
- * ║  refuses duplicates, applies hostile prototype-token defaults where the   ║
- * ║  caller left gaps, unlocks/relocks the pack around the write (pack        ║
- * ║  mode), and verifies the created actor by reading it back before          ║
- * ║  reporting success.                                                       ║
- * ║                                                                           ║
- * ║  CONFIG JOURNAL ("Claude Foe Forge Config"):                              ║
- * ║  Auto-seeded on first bare run with the CFF source list: the destination  ║
- * ║  plus every compendium Claude may search (bestiaries, universal monster   ║
- * ║  rules, monster abilities/subtypes, templates, racial HD, common-build    ║
- * ║  packs). Humans edit it - mainly the "User Extra Content" section, one    ║
- * ║  "pack.id //Label" line per extra compendium. Code only READS the         ║
- * ║  journal after seeding (same sanctioned pattern as VTT Macro Styles;      ║
- * ║  this is NOT a runManaged DB journal). The literal "system.content.       ║
- * ║  stuff" entry is the format guide and is always ignored by the parser,    ║
- * ║  matched by id - not position - so deleting it never eats a real entry.   ║
- * ║                                                                           ║
- * ║  INVOCATION (from eval or another macro):                                 ║
- * ║    await game.macros.getName("Claude Foe Forge").execute({                ║
- * ║      actorData: { name, type:"npc", img, system:{...}, items:[...],       ║
- * ║                   prototypeToken:{...} },                                 ║
- * ║      linkItems: [ ... ],          // optional, see below                  ║
- * ║      allowDuplicate: false        // optional, default false              ║
- * ║    });                                                                    ║
- * ║    await ...execute({ action:"config" });  // parsed source list (read)   ║
- * ║  Returns { ok, uuid, name, destination, folder, items, warnings } on      ║
- * ║  success, or { ok:false, error, ... } on refusal. Run bare (hotbar        ║
- * ║  click, no args) for a diagnostic dialog - seeds the config journal if    ║
- * ║  missing, checks every source pack, writes no actor.                      ║
- * ║                                                                           ║
- * ║  linkItems: class / racial-HD item data created AFTER the actor via       ║
- * ║  createEmbeddedDocuments, so pf1 fires its class-association links and    ║
- * ║  recomputes HP/BAB/saves. Bestiary clones do NOT need it - their items    ║
- * ║  already ride inside actorData.items.                                     ║
- * ║                                                                           ║
- * ║  DESTINATION: set it in the config journal (the seed ships a placeholder  ║
- * ║  to replace). A compendium id (scope.name) resolves to pack-filing; the   ║
- * ║  special id "world.actors" (with no such pack present) files into the     ║
- * ║  world Actors directory under a "Claude Foe Forge" folder.                ║
- * ║                                                                           ║
- * ║  IMAGE POLICY: icon coverage is MANDATORY - a payload whose portrait is   ║
- * ║  missing/default or whose items lack imgs is refused before creation      ║
- * ║  (allowIconless:true is the deliberate escape hatch). Remote http(s)      ║
- * ║  URLs are refused outright. Local paths of any origin are accepted -      ║
- * ║  unlike Item Forge, the destination is world-local, and bestiary clones   ║
- * ║  legitimately carry modules/pf1-bestiary/... art.                         ║
- * ║                                                                           ║
- * ║  PREREQUISITES: GM only. Save as a Script macro named exactly             ║
- * ║  "Claude Foe Forge".                                                      ║
- * ╚═══════════════════════════════════════════════════════════════════════════╝
- */
+/* Claude Foe Forge - files hostile pf1 actors into the configured destination.
+   GM-only Script macro; contract, config journal and image policy in the README. */
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 1: GUARDS
-// ═══════════════════════════════════════════════════════════════
 if (!game.user.isGM) return ui.notifications.warn("Claude Foe Forge is a GM tool.");
 
 const TAG = "[ClaudeFoeForge]";
 const req = (typeof scope === "object" && scope) ? scope : {};
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 2: CONFIGURATION
-// ═══════════════════════════════════════════════════════════════
+// Configuration.
 const JOURNAL_NAME = "Claude Foe Forge Config";
-const WORLD_FOLDER = "Claude Foe Forge";   // world-directory fallback folder
-const FORMAT_GUIDE_ID = "system.content.stuff";   // the example line, always ignored
+const WORLD_FOLDER = "Claude Foe Forge"; // world-directory fallback folder
+const FORMAT_GUIDE_ID = "system.content.stuff"; // the example line, always ignored
 
-// Seed for the config journal. Before first use, edit the journal in-world:
-// replace the Destination placeholder with a compendium id (or
-// "world.actors" for the world Actors directory) and add extra source
-// compendiums under User Extra Content as "pack.id //Label" lines.
+// Config-journal seed; edit destination + extras in-world.
 const SEED_TEXT = `Destination:
 Insert Destination Compendium here
 
@@ -132,9 +66,7 @@ const fail = (error, extra = {}) => {
 };
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 3: CONFIG JOURNAL - FIND / SEED / PARSE
-// ═══════════════════════════════════════════════════════════════
+// Config journal: find / seed / parse.
 const findJournal = () => game.journal.getName(JOURNAL_NAME);
 
 const seedJournal = async () => {
@@ -150,8 +82,7 @@ const seedJournal = async () => {
     return journal;
 };
 
-// Journal text pages store HTML; users may re-save through ProseMirror, which
-// rewraps lines in <p> tags. Flatten back to trimmed plain-text lines.
+// Flatten journal HTML (ProseMirror <p> wraps) to lines.
 const htmlToLines = (html) => String(html ?? "")
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/(p|div|li|h[1-6]|pre|tr)>/gi, "\n")
@@ -160,9 +91,7 @@ const htmlToLines = (html) => String(html ?? "")
     .replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/&#39;/g, "'")
     .split(/\r?\n/).map(s => s.trim()).filter(Boolean);
 
-// A line is an entry if it looks like a pack id (dot, no spaces) with an
-// optional "//Label"; anything else starts a new group. Shape-based, so a
-// missing colon on a header never mis-files its packs.
+// Entry looks like pack.id (+optional //Label); else a group.
 const ID_LIKE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+(\s*\/\/.*)?$/;
 
 const parseConfig = (lines) => {
@@ -201,14 +130,12 @@ const resolveDestination = (destId) => {
             return { error: `Destination pack "${destId}" holds ${pack.documentName}s, not Actors.` };
         return { mode: "pack", pack };
     }
-    if (destId === "world.actors") return { mode: "directory" };   // world Actors sidebar fallback
+    if (destId === "world.actors") return { mode: "directory" }; // world Actors sidebar fallback
     const actorPacks = game.packs.filter(p => p.documentName === "Actor").map(p => p.collection);
     return { error: `Destination "${destId}" is not a compendium here. Actor packs present: ${actorPacks.join(", ") || "(none)"}` };
 };
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 4: MODE - {action:"config"} → PARSED SOURCE LIST (READ-ONLY)
-// ═══════════════════════════════════════════════════════════════
+// action:"config" mode: parsed source list, read-only.
 if (req.action === "config") {
     const config = readConfig();
     if (!config) return fail(`Config journal "${JOURNAL_NAME}" not found. Run the macro bare (hotbar click) once to seed it.`);
@@ -222,9 +149,7 @@ if (req.action === "config") {
     };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 5: MODE - BARE RUN → SEED + DIAGNOSTIC DIALOG
-// ═══════════════════════════════════════════════════════════════
+// Bare run: seed + diagnostic dialog.
 if (!req.actorData) {
     if (!findJournal()) await seedJournal();
     const config = readConfig();
@@ -256,9 +181,7 @@ if (!req.actorData) {
     return { ok: true, diagnostic: true };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 6: VALIDATION (FORGE)
-// ═══════════════════════════════════════════════════════════════
+// Validation (forge).
 const warnings = [];
 const config = readConfig() ?? (await seedJournal(), readConfig());
 const dest = resolveDestination(config.destination);
@@ -286,10 +209,7 @@ if (req.linkItems !== undefined) {
             return fail("Every linkItems entry needs at least a name and a type.");
 }
 
-// Icon coverage is MANDATORY: a payload with missing art files a foe the GM
-// has to repair by hand, so it is refused before anything is created.
-// allowIconless:true is the deliberate escape hatch for intentionally bare
-// builds, never a default.
+// Icon coverage mandatory; allowIconless:true is the escape hatch.
 const bareItems = (Array.isArray(data.items) ? data.items : [])
     .concat(req.linkItems ?? [])
     .filter(i => !i?.img || i.img === "icons/svg/item-bag.svg");
@@ -307,13 +227,11 @@ if (!req.allowIconless) {
     if (bareItems.length) warnings.push(`allowIconless: ${bareItems.length} embedded item(s) filed without icons.`);
 }
 
-// The ≥1 HP floor proper governs damage, not creation - but a foe forged
-// already down is almost certainly a data mistake, so flag it.
+// HP floor governs damage, not creation; flag a sub-1 forge.
 const hpv = foundry.utils.getProperty(data, "system.attributes.hp.value");
 if (typeof hpv === "number" && hpv < 1) warnings.push(`Forged with hp.value ${hpv} (<1). Check the sheet.`);
 
-// Hostile-NPC token defaults fill only the gaps; anything the caller (or a
-// bestiary clone) supplied wins.
+// Hostile token defaults fill gaps; caller's values win.
 data.prototypeToken = foundry.utils.mergeObject({
     disposition: CONST.TOKEN_DISPOSITIONS.HOSTILE,
     displayName: CONST.TOKEN_DISPLAY_MODES.OWNER_HOVER,
@@ -321,9 +239,7 @@ data.prototypeToken = foundry.utils.mergeObject({
     bar1: { attribute: "attributes.hp" }
 }, data.prototypeToken ?? {}, { inplace: false });
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 7: DUPLICATE GUARD (makes retries idempotent)
-// ═══════════════════════════════════════════════════════════════
+// Duplicate guard makes retries idempotent.
 const norm = (s) => s.trim().toLowerCase();
 const twin = dest.mode === "pack"
     ? dest.pack.index.find(e => norm(e.name ?? "") === norm(data.name))
@@ -332,9 +248,7 @@ if (twin && !req.allowDuplicate)
     return fail(`"${data.name}" already exists in ${dest.mode === "pack" ? dest.pack.collection : "the world Actors directory"} (${twin.uuid}). Pass allowDuplicate:true to force.`,
         { duplicate: true, existing: twin.uuid });
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 8: CREATE + LINK ITEMS + READ-BACK VERIFY
-// ═══════════════════════════════════════════════════════════════
+// Create, link items, read-back verify.
 let created, check, folderName = null;
 const wasLocked = dest.mode === "pack" && dest.pack.locked;
 try {

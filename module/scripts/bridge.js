@@ -1,8 +1,4 @@
-// Foundry-Claude Bridge - main module entry. Registers settings, opens (when
-// enabled) a WebSocket connection to the local relay, dispatches inbound
-// JSON-RPC requests through the handler set, and emits outbound notifications
-// (e.g. logs.entry) when the relay subscribes.
-
+// Bridge module entry: settings, WS client, handler dispatch.
 import { WsClient } from './ws-client.js';
 import { LogTap } from './log-tap.js';
 import { CHAT_MACRO_COMMAND } from './chat-macro.js';
@@ -23,23 +19,11 @@ const MODULE_VERSION = '0.5.0';
 const CHAT_MACRO_NAME = 'Open Claude Code Chat';
 const WORKSHOP_MACRO_NAME = 'Claude Macro Workshop';
 
-let client = null;
-let logTap = null;
+let client = null, logTap = null;
 
-// Phase 2 chat channel: the auto-created macro's Dialog registers here so it
-// receives relay -> bridge `claude.reply` / `claude.status` notifications.
-// Module-scoped so they survive WS reconnects (client is rebuilt; these aren't).
-const replySubs = new Set();
-const statusSubs = new Set();
-// DESIGN §9 confirmation gate: the chat box registers here to render
-// claude.confirm cards and send the human's decision back.
-const confirmSubs = new Set();
-// Macro Workshop refactor channel: Claude pushes code via `claude.refactor.set`
-// (fanned to the Workshop), and reads the box's live ground truth via the
-// `refactor.get` handler → the Workshop's registered provider.
-const refactorSubs = new Set();
-let refactorProvider = null;
-let lastRefactor = null;
+// Subscriber sets survive WS reconnects (client is rebuilt).
+const replySubs = new Set(), statusSubs = new Set(), confirmSubs = new Set(), refactorSubs = new Set();
+let refactorProvider = null, lastRefactor = null;
 
 const HANDLERS = {
   'ping': handlePing,
@@ -52,8 +36,7 @@ const HANDLERS = {
   'logs.unsubscribe': handleLogsUnsubscribe,
   'eval': handleEval,
   'damage': handleDamage,
-  // Read the Workshop's live box content (ground truth, not a cache).
-  'refactor.get': () => (refactorProvider ? refactorProvider() : { open: false }),
+  'refactor.get': () => (refactorProvider ? refactorProvider() : { open: false }), // live box, not a cache
 };
 
 Hooks.once('init', () => {
@@ -78,7 +61,7 @@ Hooks.once('init', () => {
 });
 
 Hooks.once('ready', () => {
-  // Expose a tiny in-world API for debug from a macro:
+  // Tiny in-world debug API for a macro:
   //   game.modules.get('foundry-bridge').api.status()
   const mod = game.modules.get(MODULE_ID);
   if (mod) {
@@ -127,10 +110,7 @@ Hooks.once('ready', () => {
   }
 });
 
-// The module provisions its GUI macros itself. GM-only (players don't drive
-// Claude Code), idempotent by name so a reload doesn't pile up copies. The
-// command body is kept in sync on reload, but only for macros WE created
-// (autoMacro flag) - never a hand-rolled macro that merely shares the name.
+// GM-only, idempotent; refresh only our autoMacro copies.
 async function ensureMacro(name, command, img) {
   try {
     if (!game.user?.isGM) return;
@@ -155,8 +135,7 @@ async function ensureMacro(name, command, img) {
 function startClient() {
   if (client) return;
 
-  // Install the log tap before connecting so reconnect-time output is captured.
-  // The tap is cheap when no subscribers are registered.
+  // Install log tap before connect; cheap without subscribers.
   if (!logTap) {
     logTap = new LogTap();
     logTap.install();
@@ -210,6 +189,13 @@ function onDisconnected(info) {
   console.log(`[foundry-bridge] disconnected: ${info?.reason || ''} (code ${info?.code || ''})`);
 }
 
+// Fan out to subscribers; label logs a thrower.
+function fanout(subs, payload, label) {
+  for (const fn of subs) {
+    try { fn(payload); } catch (err) { if (label) console.error(`[foundry-bridge] ${label} subscriber threw:`, err); }
+  }
+}
+
 async function onMessage(msg) {
   // Hello response from relay.
   if (typeof msg.id === 'string' && msg.id.startsWith('hello-')) {
@@ -228,29 +214,22 @@ async function onMessage(msg) {
       if (replySubs.size === 0) {
         ui.notifications?.info(game.i18n.localize('FOUNDRY_BRIDGE.CHAT.ReplyWhileClosed'));
       } else {
-        for (const fn of replySubs) {
-          try { fn(msg.params || {}); } catch (err) { console.error('[foundry-bridge] reply subscriber threw:', err); }
-        }
+        fanout(replySubs, msg.params || {}, 'reply');
       }
       return;
     }
     if (msg.method === 'claude.status') {
-      for (const fn of statusSubs) {
-        try { fn(msg.params || {}); } catch (err) { /* status is best-effort */ }
-      }
+      fanout(statusSubs, msg.params || {}, null); // status is best-effort
       return;
     }
     if (msg.method === 'claude.confirm') {
       const p = msg.params || {};
-      // No open chat box = no human to approve. Auto-deny so Claude isn't left
-      // waiting on the relay timeout. (A pending write must never default open.)
+      // No chat box: auto-deny so Claude isn't stuck on timeout.
       if (confirmSubs.size === 0) {
         client.send({ jsonrpc: '2.0', method: 'claude.confirm.result',
           params: { opId: p.opId, approved: false, reason: 'chat-box-closed' } });
       } else {
-        for (const fn of confirmSubs) {
-          try { fn(p); } catch (err) { console.error('[foundry-bridge] confirm subscriber threw:', err); }
-        }
+        fanout(confirmSubs, p, 'confirm');
       }
       return;
     }
@@ -260,9 +239,7 @@ async function onMessage(msg) {
       if (refactorSubs.size === 0) {
         ui.notifications?.info(game.i18n.localize('FOUNDRY_BRIDGE.WORKSHOP.PushedClosed'));
       } else {
-        for (const fn of refactorSubs) {
-          try { fn(lastRefactor); } catch (err) { console.error('[foundry-bridge] refactor subscriber threw:', err); }
-        }
+        fanout(refactorSubs, lastRefactor, 'refactor');
       }
       return;
     }
@@ -296,5 +273,5 @@ async function onMessage(msg) {
       });
     }
   }
-  // Anything else (responses to requests we sent - Phase 1 doesn't initiate any) is ignored.
+  // Responses to our own requests are ignored (Phase 1 sends none).
 }

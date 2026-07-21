@@ -1,6 +1,4 @@
-// query.journal handler - read a journal entry or specific page. Supports
-// lookups by id or name. Returns page content (HTML for text pages, src for
-// image / pdf / video pages).
+// query.journal: entry or page by id/name; returns page content.
 
 export async function handleQueryJournal(params) {
   const { journalId, name, pageId, pageName } = params || {};

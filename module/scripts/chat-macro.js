@@ -1,15 +1,5 @@
-// Phase 2 - source for the auto-created "Open Claude Code Chat" macro.
-//
-// The chat box is a Dialog, NOT a module Application class: the bridge module
-// still ships no GUI surface of its own (CLAUDE.md, relaxed for Phase 2). We
-// author it as a real function and serialize it with Function.prototype
-// .toString() so its own template literals / ${} don't need hand-escaping.
-// Safe because there is no build/minify step (locked decision 7).
-//
-// chatBoxMain must stay self-contained: it may reference only runtime globals
-// (game, ui, Dialog, document, window, console, set/clearInterval) and the
-// module's public API at game.modules.get('foundry-bridge').api. No closures
-// over this file's scope survive .toString().
+/* "Open Claude Code Chat" macro source, serialized via .toString().
+   Self-contained: runtime globals + module api only. */
 
 async function chatBoxMain() {
   const MODULE_ID = 'foundry-bridge';
@@ -17,8 +7,7 @@ async function chatBoxMain() {
   const LAYOUT_ID = 'ccc-claude-code-chat-layout';
   const L = (k) => game.i18n.localize('FOUNDRY_BRIDGE.CHAT.' + k);
 
-  // Style loader, per Foundry JS/Stylesfolderhowto: prefer the "VTT Macro
-  // Styles" journal, fall back to inline CSS if it can't be read.
+  // Prefer "VTT Macro Styles" journal, else inline CSS.
   async function injectMacroStyles(styleId, pageName, fallbackCSS) {
     if (document.getElementById(styleId)) return;
     let css = fallbackCSS || '';
@@ -39,7 +28,7 @@ async function chatBoxMain() {
     document.head.appendChild(style);
   }
 
-  // Minimal Dark Theme fallback - enough to stay readable if the journal is gone.
+  // Minimal dark fallback if the journal is gone.
   const FALLBACK_CSS = `
     .forge-dialog-dark { background:#1a1a1a; color:#e0e0e0; }
     .forge-dialog-dark .section { background:#2a2a2a; border:1px solid #00ffcc; padding:8px; border-radius:4px; }
@@ -49,13 +38,11 @@ async function chatBoxMain() {
 
   await injectMacroStyles(STYLE_ID, 'Dark Theme', FALLBACK_CSS);
 
-  // Chat-specific layout - kept out of the shared theme (style guide rule),
-  // prefixed `ccc-`. Typed text is forced pure white per DatJavaClass's instruction.
+  // Chat layout, prefixed ccc-; typed text forced white.
   if (!document.getElementById(LAYOUT_ID)) {
     const s = document.createElement('style');
     s.id = LAYOUT_ID;
-    // Vertical stack with explicit heights - flex:1 against a Foundry Dialog's
-    // indefinite content height collapses, which is what squished the old box.
+    // Explicit heights: flex:1 collapses in a Foundry Dialog.
     s.textContent = `
       .ccc-wrap { display:flex; flex-direction:column; gap:8px; }
       .ccc-status { font-size:12px; padding:5px 8px; border-radius:3px; border:1px solid #00ffcc; }
@@ -136,7 +123,7 @@ async function chatBoxMain() {
       msg.appendChild(who);
     }
     const body = document.createElement('span');
-    body.textContent = text;            // textContent: no HTML injection, newlines kept by CSS
+    body.textContent = text; // textContent: no HTML injection, newlines kept by CSS
     msg.appendChild(body);
     log.appendChild(msg);
     log.scrollTop = log.scrollHeight;
@@ -152,9 +139,7 @@ async function chatBoxMain() {
       : L('StatusNoListener');
   };
 
-  // DESIGN §9 confirmation gate. Renders a card with the summary + the exact
-  // code (eval) or HP preview (damage) and Approve/Deny. level "double"
-  // (deletes) requires a distinct second approval. Decision → api.sendConfirmResult.
+  // §9 confirm card; "double" needs a second approval.
   const renderConfirm = (p) => {
     const log = $el('log');
     if (!log || !p || !p.opId) return;
@@ -255,12 +240,11 @@ async function chatBoxMain() {
     ta.focus();
   };
 
-  // Subscribe to relay pushes once, before the dialog opens; tear down on close.
+  // Subscribe to relay pushes; tear down on close.
   const unsubReply = api.onReply((p) => addMsg('claude', p?.text ?? ''));
   const unsubStatus = api.onStatus((p) => setStatus(p?.state || 'no-listener'));
   const unsubConfirm = api.onConfirm((p) => renderConfirm(p || {}));
-  let poll = null;
-  let wasConnected = true;
+  let poll = null, wasConnected = true;
 
   const dlg = new Dialog({
     title: L('Title'),
@@ -279,7 +263,7 @@ async function chatBoxMain() {
       poll = setInterval(() => {
         const c = api.isConnected();
         if (!c) setStatus('disconnected');
-        else if (!wasConnected) { api.requestStatus(); }   // reconnected: refresh
+        else if (!wasConnected) { api.requestStatus(); } // reconnected: refresh
         wasConnected = c;
       }, 3000);
       setTimeout(() => $el('input')?.focus(), 50);

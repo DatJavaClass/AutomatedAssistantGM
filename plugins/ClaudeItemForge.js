@@ -1,62 +1,12 @@
-/**
- * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║                          CLAUDE ITEM FORGE                                ║
- * ║              plug-in macro for the AAGM Foundry-Claude bridge             ║
- * ╠══════════════════════════════════════════════════════════════════════════╣
- * ║  WHAT IT DOES:                                                            ║
- * ║  Lets Claude file finished items into a dedicated world compendium.       ║
- * ║  Describe a magic item to Claude in the chat box; Claude builds the       ║
- * ║  full item data for your game system and invokes this macro through       ║
- * ║  the bridge's gated eval (one Approve/Deny card per item). The macro      ║
- * ║  validates the payload, refuses duplicates, and verifies the created      ║
- * ║  item by reading it back before reporting success.                        ║
- * ║                                                                           ║
- * ║  STORAGE (created automatically on first run):                            ║
- * ║  A world Item compendium "Claude Items" with this folder tree:            ║
- * ║    Claude Magic Weapons                                                   ║
- * ║      ├─ Claude Magic Simple Weapons     (weapon-simple)                   ║
- * ║      ├─ Claude Magic Martial Weapons    (weapon-martial)                  ║
- * ║      ├─ Claude Magic Exotic Weapons     (weapon-exotic)                   ║
- * ║      ├─ Claude Magic Firearms           (weapon-firearm)                  ║
- * ║      └─ Claude Magic Ammo               (ammo)                            ║
- * ║    Claude Magic Armor                   (magic-armor)                     ║
- * ║    Claude Wondrous Items                (wondrous)                        ║
- * ║    Claude Alchemy                       (alchemy)                         ║
- * ║  Run the macro bare (hotbar click, no arguments) to create/repair the     ║
- * ║  compendium and folders and see a routing diagnostic. No items are        ║
- * ║  written on a bare run.                                                   ║
- * ║                                                                           ║
- * ║  INVOCATION (what Claude sends through the gated eval):                   ║
- * ║    await game.macros.getName("Claude Item Forge").execute({               ║
- * ║      destination: "weapon-martial",      // key from the tree above       ║
- * ║      itemData: { name, type, img, system: {...} },                        ║
- * ║      allowDuplicate: false               // optional, default false       ║
- * ║    });                                                                    ║
- * ║  Returns { ok, uuid, name, folder, pack, warnings } on success, or        ║
- * ║  { ok:false, error, ... } on refusal.                                     ║
- * ║                                                                           ║
- * ║  IMAGE POLICY (hard rule): item img must be a core "icons/" path or a     ║
- * ║  path inside your active system ("systems/<id>/"), and descriptions       ║
- * ║  may not embed <img> tags. Compendium entries built this way never        ║
- * ║  point at world-local or uploaded assets, so the pack stays portable.     ║
- * ║                                                                           ║
- * ║  PREREQUISITES: GM only. Save as a Script macro named exactly             ║
- * ║  "Claude Item Forge". Tested on Pathfinder 1e; the macro itself is        ║
- * ║  system-agnostic (Claude supplies system-correct item data).              ║
- * ╚══════════════════════════════════════════════════════════════════════════╝
- */
+/* Claude Item Forge - files magic items into the "Claude Items" world pack.
+   GM-only Script macro; contract and storage layout documented in the README. */
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 1: GUARDS
-// ═══════════════════════════════════════════════════════════════
 if (!game.user.isGM) return ui.notifications.warn("Claude Item Forge is a GM tool.");
 
 const TAG = "[ClaudeItemForge]";
 const req = (typeof scope === "object" && scope) ? scope : {};
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 2: STORAGE LAYOUT
-// ═══════════════════════════════════════════════════════════════
+// Storage layout: pack + folder tree.
 const PACK_NAME = "claude-items";
 const PACK_LABEL = "Claude Items";
 
@@ -73,7 +23,7 @@ const FOLDER_DEFS = [
     { key: "alchemy",        name: "Claude Alchemy",               parent: null },
 ];
 
-// Valid forge destinations (weapons-root is structural, not a destination).
+// Valid destinations (weapons-root is structural).
 const ROUTES = {
     "alchemy":        "consumables: potions, alchemical gear",
     "magic-armor":    "magic armor, shields, armor add-ons",
@@ -85,7 +35,7 @@ const ROUTES = {
     "ammo":           "magic ammunition",
 };
 
-// Portable-pack safety: only paths every install of this system can resolve.
+// Portable-pack safety: system-resolvable paths only.
 const IMG_OK = new RegExp(`^(icons/|systems/${game.system.id}/)`);
 
 const fail = (error, extra = {}) => {
@@ -94,9 +44,7 @@ const fail = (error, extra = {}) => {
     return { ok: false, error, ...extra };
 };
 
-// ═══════════════════════════════════════════════════════════════
-// SECTION 3: ENSURE STORAGE (pack + folder tree, idempotent)
-// ═══════════════════════════════════════════════════════════════
+// Ensure storage (pack + folder tree, idempotent).
 let pack = game.packs.find(p =>
     p.metadata.packageType === "world" &&
     (p.metadata.name === PACK_NAME || p.metadata.label === PACK_LABEL) &&
@@ -123,9 +71,7 @@ try {
         folderByKey[def.key] = f;
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // SECTION 4: BARE RUN → SETUP + DIAGNOSTIC (no item written)
-    // ═══════════════════════════════════════════════════════════
+    // Bare run: setup + diagnostic, writes no item.
     if (!req.destination && !req.itemData) {
         const rows = Object.entries(ROUTES).map(([key, holds]) =>
             `<tr><td style="padding:2px 8px;white-space:nowrap"><b>${key}</b></td>
@@ -143,9 +89,7 @@ try {
         return { ok: true, diagnostic: true, pack: pack.collection, createdFolders: created_folders };
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // SECTION 5: VALIDATION
-    // ═══════════════════════════════════════════════════════════
+    // Validation.
     const warnings = [];
     if (!ROUTES[req.destination])
         return fail(`Unknown destination "${req.destination}". Valid: ${Object.keys(ROUTES).join(", ")}`);
@@ -170,23 +114,19 @@ try {
     } else if (!IMG_OK.test(data.img)) {
         return fail(`img "${data.img}" violates the portable-pack image policy (must start with "icons/" or "systems/${game.system.id}/").`);
     }
-    // Same policy inside the description: an embedded <img> would break portability.
+    // Same policy in description; embedded <img> breaks portability.
     const desc = foundry.utils.getProperty(data, "system.description.value");
     if (typeof desc === "string" && /<img[\s>]/i.test(desc))
         return fail("system.description.value contains an <img> tag; embedded images are not allowed in the pack.");
 
-    // ═══════════════════════════════════════════════════════════
-    // SECTION 6: DUPLICATE GUARD (makes retries idempotent)
-    // ═══════════════════════════════════════════════════════════
+    // Duplicate guard makes retries idempotent.
     const norm = (s) => s.trim().toLowerCase();
     const twin = pack.index.find(e => norm(e.name ?? "") === norm(data.name));
     if (twin && !req.allowDuplicate)
         return fail(`"${data.name}" already exists in ${pack.collection} (${twin.uuid}). Pass allowDuplicate:true to force.`,
             { duplicate: true, existing: twin.uuid });
 
-    // ═══════════════════════════════════════════════════════════
-    // SECTION 7: CREATE + READ-BACK VERIFY
-    // ═══════════════════════════════════════════════════════════
+    // Create then read-back verify.
     data.folder = folder.id;
     const created = await Item.create(data, { pack: pack.collection });
     if (!created) return fail("Item.create returned nothing; item was not created.");

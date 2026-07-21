@@ -1,17 +1,5 @@
-// Source for the auto-created "Claude Macro Workshop" macro - a separate
-// window from the chat box (own blast radius), reusing the bridge module's
-// api/relay/loop/protocol. Serialized via Function.prototype.toString() like
-// chat-macro.js; must stay self-contained (runtime globals + the module api
-// only). CSS prefix `cmw-` is reserved for this macro (ms-/dw-/ccc- taken).
-//
-// Layout: a wide IDE-ish window. Top: status + Save target/name + Save button.
-// Middle: the Refactor Box (line-number gutter + editable code area, user AND
-// Claude editable). Bottom: Text Entry (ask Claude to load/refine/debug) +
-// Claude Dialog Box (replies & confirmation cards). "Load macro X" = ask in
-// the entry; Claude reads it and pushes it here via foundry_workshop_set.
-// Save duplicates the target as "<name>.old" (single rolling backup) then
-// overwrites the original to preserve its id/linkages - user-initiated, so
-// NOT routed through the §9 gate (the click is the authorization).
+/* "Claude Macro Workshop" macro source, serialized via .toString().
+   Self-contained; CSS prefix cmw-. Save is user-initiated, not §9-gated. */
 
 async function workshopMain() {
   const MODULE_ID = 'foundry-bridge';
@@ -179,8 +167,7 @@ async function workshopMain() {
     log.scrollTop = log.scrollHeight;
   };
 
-  // Compact §9 confirm card (writes Claude initiates from here are still gated;
-  // Save is NOT - that's the user's button below).
+  // Compact §9 confirm card; Save is not gated.
   const renderConfirm = (p) => {
     const log = $el('log');
     if (!log || !p || !p.opId) return;
@@ -253,7 +240,7 @@ async function workshopMain() {
         }
         const oldName = macro.name + '.old';
         const prior = game.macros.getName(oldName);
-        if (prior) await prior.delete();                 // single rolling backup
+        if (prior) await prior.delete(); // single rolling backup
         const data = macro.toObject();
         delete data._id;
         data.name = oldName;
@@ -312,12 +299,12 @@ async function workshopMain() {
         if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); submit(); }
       });
       $el('save')?.addEventListener('click', doSave);
-      // If Claude pushed code before the window was open, pull it now.
+      // Pull code Claude pushed before the window opened.
       try {
         const last = api.getLastRefactor?.();
         if (last && last.content) setEditor(last.content, last.macroId, last.macroName);
       } catch (e) {}
-      // Live provider so Claude reads the box's GROUND TRUTH (user edits), not a cache.
+      // Live provider: box ground truth, not a cache.
       api.setRefactorProvider?.(() => ({
         open: true,
         content: $el('code')?.value ?? '',

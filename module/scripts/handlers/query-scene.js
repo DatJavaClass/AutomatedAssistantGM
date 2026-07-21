@@ -1,5 +1,4 @@
-// query.scene handler - scene metadata + lightweight token list. Defaults to
-// the active scene if no sceneId is given.
+// query.scene: metadata + token list; defaults to active.
 
 export async function handleQueryScene(params) {
   const { sceneId } = params || {};

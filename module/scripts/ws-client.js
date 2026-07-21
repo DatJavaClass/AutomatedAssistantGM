@@ -1,7 +1,4 @@
-// WebSocket client with exponential-backoff reconnection. Backoff schedule:
-// 1s, 2s, 4s, 8s, then capped at 30s indefinitely. Reconnect attempts continue
-// until stop() is called explicitly (e.g. when the user disables the module).
-
+// WebSocket client, exponential-backoff reconnect (1/2/4/8s, cap 30s).
 const BACKOFF_SCHEDULE_MS = [1_000, 2_000, 4_000, 8_000];
 const BACKOFF_MAX_MS = 30_000;
 
@@ -86,7 +83,7 @@ export class WsClient {
       if (!this.stopped) this._scheduleReconnect();
     });
 
-    // 'error' is followed by 'close'; reconnect logic lives in the close handler.
+    // 'error' precedes 'close'; reconnect handled on close.
     s.addEventListener('error', () => {});
   }
 

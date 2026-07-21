@@ -1,6 +1,4 @@
-// ping handler - liveness check. Returns server time so the caller can verify
-// it's the Foundry tab (not a stale relay or some intermediate cache) that
-// answered.
+// ping handler: liveness check; returns server time.
 
 export async function handlePing() {
   return {
