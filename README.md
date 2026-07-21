@@ -17,6 +17,7 @@ A localhost bridge between a Forge-hosted **Foundry VTT v12** world (Tested on P
 - **`module/`** - the `foundry-bridge` module (v0.7.0) running in the GM's browser tab. Opens a WebSocket out to the relay.
 
 Claude reaches Foundry **only** through the relay, and every write passes a confirmation gate.
+**WARNING:**If you fork this, be ready for some entertaining choices in engineering required to avoid Anthropic's API!
 
 ---
 
