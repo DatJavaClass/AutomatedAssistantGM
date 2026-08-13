@@ -133,6 +133,9 @@ The bridge is extensible, and the four plug-ins below are the proof: each one is
 
 What changed and when. Newest first, no archaeology required.
 
+**0.8.1 (2026-08-13)**
+- Hotfix: the settings form's Save button was performing a full native browser submit, reloading all of Foundry and saving nothing. It now saves your settings instead of your patience.
+
 **0.8.0 - The AAGM-C Update (2026-08-13)**
 - AAGM is now **AAGM-C: Automated Assistant Game Master - Claude**. Same bridge, clearer name, and an OpenAI sibling (AAGM-O) is in development.
 - A real settings menu at *Configure Settings → AAGM-C Settings*. Three presets: Assistant confirms everything, Co-GM trusts you, Custom hands you the switches.

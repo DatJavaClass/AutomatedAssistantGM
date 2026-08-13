@@ -21,7 +21,7 @@ import { handleDamage } from './handlers/damage.js';
 import { handleLootPending, handleLootRestore } from './handlers/loot.js';
 
 const MODULE_ID = 'foundry-bridge';
-const MODULE_VERSION = '0.8.0';
+const MODULE_VERSION = '0.8.1';
 const CHAT_MACRO_NAME = 'Open Claude Code Chat';
 
 let client = null;

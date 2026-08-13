@@ -2,7 +2,7 @@
   "id": "foundry-bridge",
   "title": "AAGM-C: Automated Assistant Game Master - Claude",
   "description": "Bridge module that exposes a controlled command channel from a running Foundry VTT instance to a local relay process, enabling Claude (Code/Chat) to assist with debug and AAGM workflows. The Claude member of the AAGM family (see also AAGM-O, the OpenAI version).",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "compatibility": {
     "minimum": "12",
     "verified": "12.343",

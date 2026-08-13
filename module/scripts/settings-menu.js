@@ -17,6 +17,9 @@ export class AagmSettingsMenu extends FormApplication {
     });
   }
 
+  // Template MUST be trimmed: a leading newline makes jQuery parse
+  // [textNode, form], core never finds the form, Save does a NATIVE
+  // browser submit and reloads all of Foundry (0.8.0 bug).
   async _renderInner() {
     const s = settingsSnapshot();
     const dis = s.mode !== 'custom' ? 'disabled' : '';
@@ -27,8 +30,7 @@ export class AagmSettingsMenu extends FormApplication {
         <b>${L(`Mode${m}.Name`)}</b>
         <p class="notes" style="margin:2px 0 0 20px;">${L(`Mode${m}.Hint`)}</p>
       </label>`;
-    return $(`
-      <form autocomplete="off">
+    return $(`<form autocomplete="off">
         <fieldset><legend>${L('ModeLegend')}</legend>
           ${radio('assistant')}${radio('cogm')}${radio('custom')}
         </fieldset>
@@ -56,6 +58,9 @@ export class AagmSettingsMenu extends FormApplication {
 
   activateListeners(html) {
     super.activateListeners(html);
+    /* Seatbelt: if core missed the form, bind submit ourselves. */
+    const form = html[0] instanceof HTMLFormElement ? html[0] : (html.find('form')[0] || html.closest('form')[0]);
+    if (form && form.onsubmit == null) { this.form = form; form.onsubmit = this._onSubmit.bind(this); }
     // Mode radios lock/unlock the option fields live; Mirror stays open.
     html.find('input[name="mode"]').on('change', (ev) => {
       const mode = ev.currentTarget.value, custom = mode === 'custom';
