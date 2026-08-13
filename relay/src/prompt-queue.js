@@ -1,12 +1,26 @@
-/* Phase 2 queue: box prompts wait for the polling /loop.
-   MCP is Claude-initiated, so push is impossible - poll it is. */
+// Phase 2 — the Foundry → Claude Code direction. The in-Foundry chat box sends
+// `claude.prompt` notifications; this queue buffers them for a polling /loop on
+// the Claude Code side (via the foundry_get_prompts MCP tool). Replies travel
+// back the other way as `claude.reply` notifications (see dispatcher.notifyBridge).
+//
+// Why a queue + poll instead of a push: nothing can inject a prompt into a
+// running Claude Code session — MCP is Claude-initiated. So Claude Code polls
+// here in a loop, and the relay holds messages until it does.
 
 import { existsSync, rmSync } from 'node:fs';
 
-const LISTENER_TIMEOUT_MS = 45_000; // active window, ~1.5x slow loop cadence
+// A listener (a draining /loop) is considered "active" if foundry_get_prompts
+// has been called within this window. Sized at ~1.5× a slow loop cadence.
+const LISTENER_TIMEOUT_MS = 45_000;
 const SWEEP_INTERVAL_MS = 10_000;
-const LONG_POLL_TIMEOUT_MS = 25_000; // under MCP's 60s and LISTENER_TIMEOUT_MS
-const TERMINATORS = new Set(['/exit', '/stop', '/quit']); // DESIGN §10 stop words
+// foundry_get_prompts long-polls: it blocks until a message/terminator arrives
+// or this elapses, then returns (empty if nothing). Near-zero pickup latency
+// when active; ~1 call per this interval when idle. Kept well under the MCP
+// client's 60s request timeout, and < LISTENER_TIMEOUT_MS so an alive,
+// idle-but-polling loop still reads as "ready".
+const LONG_POLL_TIMEOUT_MS = 25_000;
+// Typed control words that mean "stop the loop" — see DESIGN §10 Phase 2.
+const TERMINATORS = new Set(['/exit', '/stop', '/quit']);
 
 export class PromptQueue {
   constructor({ dispatcher, audit, stopFilePath }) {
@@ -17,21 +31,27 @@ export class PromptQueue {
     this.terminate = false;
     this.listenerLastSeen = 0;
     this.listenerActive = false;
+    this.activeListenerId = null;
     this._sweep = null;
-    this._waiters = new Set(); // in-flight long-poll resolvers
+    this._waiters = new Set();   // resolve fns for in-flight long-poll calls
 
     dispatcher.subscribe('claude.prompt', (p) => this._onPrompt(p || {}));
-    dispatcher.subscribe('claude.hello', () => this._broadcastStatus()); // fresh box wants status now
+    // Box opened (or reconnected): it wants the current status immediately.
+    dispatcher.subscribe('claude.hello', () => this._broadcastStatus());
   }
 
   start() {
     if (this._sweep) return;
-    // Quiet listener flips the box to "no-listener" - no typing into the void.
+    // If a listener goes quiet (loop stopped/crashed), flip the box back to
+    // "no-listener" so DatJavaClass isn't typing into a void without knowing.
     this._sweep = setInterval(() => {
-      this._checkStopFile(); // catch .loop-stop mid-idle, not next timeout
+      // Catch a .loop-stop dropped during an otherwise-idle long-poll so the
+      // loop ends within a sweep tick, not only on the next timeout.
+      this._checkStopFile();
       if (this.terminate) this._wake();
       if (this.listenerActive && Date.now() - this.listenerLastSeen > LISTENER_TIMEOUT_MS) {
         this.listenerActive = false;
+        this.activeListenerId = null; /* quiet loop frees the slot */
         this._broadcastStatus();
       }
     }, SWEEP_INTERVAL_MS);
@@ -53,11 +73,13 @@ export class PromptQueue {
     }
     this.queue.push({ promptId: promptId || `p-${Date.now()}`, text: text ?? '', ts: new Date().toISOString() });
     this.audit.log('chat.in', { promptId, len: (text || '').length });
-    this._broadcastStatus(); // reflect listener presence as the user types
-    this._wake(); // release any in-flight long-poll immediately
+    // Reflect listener presence as the user types, not just on poll.
+    this._broadcastStatus();
+    this._wake();   // release any in-flight long-poll immediately
   }
 
-  // Kill file works even with the box/relay link down. Idempotent.
+  // .loop-stop is a local kill file — a terminator that works even if the
+  // box/relay link is down. Idempotent: logs/sets terminate at most once.
   _checkStopFile() {
     if (!this.stopFilePath || !existsSync(this.stopFilePath)) return;
     if (!this.terminate) {
@@ -72,7 +94,18 @@ export class PromptQueue {
     for (const w of [...this._waiters]) w();
   }
 
-  // Long-poll: resolves on work or timeout; drain() follows.
+  // §13.2 single-listener lock. First id claims the slot; a DIFFERENT id
+  // while the slot is live is refused (-33005 in mcp-server). The slot frees
+  // on terminate or listener timeout. Makes split-brain (two loops splitting
+  // one conversation, 2026-08-13) structurally impossible.
+  claimListener(listenerId) {
+    if (this.listenerActive && this.activeListenerId && listenerId !== this.activeListenerId) return false;
+    this.activeListenerId = listenerId;
+    return true;
+  }
+
+  // Long-poll: resolve as soon as there is work (a queued prompt or a pending
+  // terminate) or after timeoutMs. drain() is called by the tool right after.
   async waitForWork({ timeoutMs = LONG_POLL_TIMEOUT_MS } = {}) {
     this._checkStopFile();
     if (this.terminate || this.queue.length) return;
@@ -90,7 +123,8 @@ export class PromptQueue {
     });
   }
 
-  // Draining counts as a poll; the box flips "ready".
+  // Called by the foundry_get_prompts MCP tool after waitForWork. Draining
+  // counts as a poll, so the box flips to "ready".
   drain() {
     this.listenerLastSeen = Date.now();
     if (!this.listenerActive) {
@@ -98,15 +132,25 @@ export class PromptQueue {
       this._broadcastStatus();
     }
     this._checkStopFile();
-    // Consume-once terminate: a stale flag never kills a fresh loop.
+    // Consume-once: report terminate to the loop that's draining, then clear it
+    // so a freshly-started loop isn't instantly killed by a stale flag (no
+    // relay restart needed after an /exit).
     const terminate = this.terminate;
     this.terminate = false;
+    if (terminate) {
+      // Loop is over: free the slot immediately so a relaunch never waits
+      // out the 45s timeout, and flip the box to no-listener.
+      this.activeListenerId = null;
+      this.listenerActive = false;
+      this._broadcastStatus();
+    }
     const prompts = this.queue.splice(0, this.queue.length);
     return { prompts, terminate };
   }
 
   _broadcastStatus() {
-    // Strings live in lang/en.json; 'disconnected' is detected box-side.
+    // Module localizes the state into DatJavaClass's language (project rule: strings
+    // live in lang/en.json, not here). 'disconnected' is detected box-side.
     const state = this.listenerActive ? 'ready' : 'no-listener';
     this.dispatcher.notifyBridge({ capabilitySet: 'debug', method: 'claude.status', params: { state } });
   }

@@ -1,6 +1,17 @@
-/* eval handler (§7): runs JS in the GM client for inspection.
-   Read-only enforced upstream at the relay; no second guard here.
-   `code` is an async body (return + await); result serialized with caps. */
+// eval handler (DESIGN §7) — runs JS in the GM client context so Claude Code
+// can inspect anything the GM sees: actors, items, scenes, tiles, compendia,
+// folders, macros, playlists, tables, settings.
+//
+// This handler is full power by design (it's the debug channel, human-in-loop
+// per DESIGN §4.2). The READ-ONLY discipline for this stage is enforced
+// upstream: the relay's eval-guard refuses mutating/destructive code before it
+// ever reaches here. Don't add a second, weaker guard in here — keep the gate
+// in one auditable place.
+//
+// `code` is treated as an async function body: use `return` to produce a
+// value and `await` freely (compendium reads are async). Result is serialized
+// with depth/size caps + a circular guard so a stray `return game.actors`
+// can't dump megabytes into the chat.
 
 const CAPS = { maxDepth: 8, maxArray: 500, maxString: 25_000, maxKeys: 300 };
 
@@ -11,8 +22,10 @@ export async function handleEval({ code, awaitResult, captureConsole } = {}, ctx
     throw e;
   }
 
-  /* Console-capture: return logs/errors with result, never throw.
-     Stateless per call; reuses LogTap, capped against floods. */
+  // Console-capture mode (Feature 1): collect everything this execution prints
+  // or throws and return it WITH the result instead of throwing, so a debug
+  // snippet's logs/errors survive even when it fails. Stateless — each call is
+  // independent. Reuses the existing LogTap; capped so a noisy loop can't flood.
   const capture = !!captureConsole;
   const lines = [];
   let unsub = null;
@@ -32,19 +45,21 @@ export async function handleEval({ code, awaitResult, captureConsole } = {}, ctx
 
   let runner;
   try {
-    // new Function (not eval): isolates handler scope; async IIFE for return + await.
+    // (new Function(...))() — not raw eval — so user code can't see or clobber
+    // this handler's scope. Wrapped in an async IIFE for return + await.
     runner = new Function('"use strict"; return (async () => {\n' + code + '\n})();');
   } catch (err) {
     try { unsub?.(); } catch (e) {}
-    if (capture) return withConsole({ ok: false, thrown: { message: `syntax error - ${err.message}` } });
-    const e = new Error(`eval: syntax error - ${err.message}`);
+    if (capture) return withConsole({ ok: false, thrown: { message: `syntax error — ${err.message}` } });
+    const e = new Error(`eval: syntax error — ${err.message}`);
     e.code = -33002;
     throw e;
   }
 
   try {
     let result = await runner();
-    // awaitResult (default true): resolve a returned thenable too.
+    // awaitResult (default true): if the returned value is itself a thenable
+    // (e.g. `return pack.getDocuments()` un-awaited), resolve it too.
     if (awaitResult !== false && result && typeof result.then === 'function') {
       result = await result;
     }
@@ -56,7 +71,7 @@ export async function handleEval({ code, awaitResult, captureConsole } = {}, ctx
         thrown: { message: String(err?.message || err), stack: (err?.stack || '').slice(0, 4000) },
       });
     }
-    const e = new Error(`eval: execution threw - ${err?.message || String(err)}`);
+    const e = new Error(`eval: execution threw — ${err?.message || String(err)}`);
     e.code = -33002;
     e.data = { stack: (err?.stack || '').slice(0, 4000) };
     throw e;
@@ -73,7 +88,9 @@ function classify(v) {
   return v?.constructor?.name || 'object';
 }
 
-// Recursive, depth-limited, circular-safe serializer; truncations marked.
+// Recursive, depth-limited, circular-safe. Foundry Documents collapse via
+// toObject(); Collections/Maps/Sets become arrays. Truncations are marked so
+// Claude knows to re-query more narrowly instead of trusting a clipped blob.
 function serialize(value, caps) {
   const seen = new WeakSet();
   const { maxDepth, maxArray, maxString, maxKeys } = caps;

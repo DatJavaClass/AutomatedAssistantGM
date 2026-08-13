@@ -1,9 +1,14 @@
-// WS server for the in-Foundry bridge. Hello first, then work.
+// WebSocket server that accepts connections from the in-Foundry bridge module.
+// Each connection sends a `hello` first; we look up the user's capability set
+// from config and either accept (assigning a sessionId) or close with 4001
+// (no capability set) / 4002 (duplicate userId).
 
 import { WebSocketServer } from 'ws';
 import { randomUUID } from 'node:crypto';
 
-// Set name -> allowed methods. DESIGN.md §5.1 is truth - keep in sync.
+// Capability set definitions. The set name is what config.json maps users to;
+// the value is the list of methods that set is allowed to invoke. DESIGN.md
+// §5.1 is the source of truth - keep this in sync.
 const CAPABILITY_SETS = {
   debug: new Set([
     'ping',
@@ -14,14 +19,21 @@ const CAPABILITY_SETS = {
     'query.user',
     'logs.subscribe',
     'logs.unsubscribe',
-    'eval', // reads free; writes gated; HP/DB-journal refused (eval-guard.js)
-    'damage', // constrained HP primitive, absolute >=1 HP floor
-    'refactor.get', // Workshop's live editor content
+    // eval: reads run free; writes/deletes route through the DESIGN §9
+    // confirmation gate (HP included); DB-journal hard-refused (see eval-guard.js).
+    'eval',
+    // damage: constrained damage primitive, §9-gated; a below-1-HP outcome
+    // escalates to a double confirm.
+    'damage',
+    // Claude Loot Watchdog rescue queue: pending reads the stash, restore is
+    // the constrained un-gated recreate primitive (see handlers/loot.js).
+    'loot.pending',
+    'loot.restore',
   ]),
   // 'aagm' set arrives in Phase 3.
 };
 
-export function startWsServer({ config, dispatcher, audit }) {
+export function startWsServer({ config, dispatcher, audit, worldSettings }) {
   const { host, port } = config.ws;
   if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') {
     throw new Error(`refusing to bind WS server to non-localhost address "${host}"`);
@@ -30,7 +42,7 @@ export function startWsServer({ config, dispatcher, audit }) {
   wss.on('listening', () => {
     console.log(`[ws] listening on ws://${host}:${port}`);
   });
-  wss.on('connection', (socket, req) => handleConnection(socket, req, { config, dispatcher, audit }));
+  wss.on('connection', (socket, req) => handleConnection(socket, req, { config, dispatcher, audit, worldSettings }));
 
   return {
     close: () => wss.close(),
@@ -38,15 +50,18 @@ export function startWsServer({ config, dispatcher, audit }) {
   };
 }
 
-function handleConnection(socket, req, { config, dispatcher, audit }) {
+function handleConnection(socket, req, { config, dispatcher, audit, worldSettings }) {
   const remote = req.socket.remoteAddress;
-  if (remote && !isLoopback(remote)) { // belt to the bind's suspenders
+  // Defense-in-depth: if anything ever bypasses the bind, refuse non-loopback.
+  if (remote && !isLoopback(remote)) {
     audit.log('ws.reject_nonlocal', { remote });
     socket.close(4003, 'non-localhost');
     return;
   }
 
-  let sessionId = null, userId = null, helloSeen = false;
+  let sessionId = null;
+  let helloSeen = false;
+  let userId = null;
 
   const send = (msg) => {
     if (socket.readyState !== socket.OPEN) return;
@@ -81,7 +96,8 @@ function handleConnection(socket, req, { config, dispatcher, audit }) {
       helloSeen = true;
       sessionId = result.sessionId;
       userId = result.userId;
-      // Metadata validated + send closure bound: register.
+      // Register with the dispatcher now that we have both validated metadata
+      // and a `send` closure bound to this socket.
       dispatcher.registerBridge({
         sessionId,
         userId,
@@ -95,6 +111,9 @@ function handleConnection(socket, req, { config, dispatcher, audit }) {
         isGM: result.isGM,
         send,
       });
+      // §13.2: hello carries the world's settings snapshot; later changes
+      // arrive as settings.sync notifications (WorldSettings subscribes).
+      if (result.settings) worldSettings?.update(result.settings, 'hello');
       send({
         jsonrpc: '2.0',
         result: { sessionId, capabilitySet: result.capabilitySet, auditLogging: result.auditLogging },
@@ -103,7 +122,9 @@ function handleConnection(socket, req, { config, dispatcher, audit }) {
       return;
     }
 
-    // Post-hello: a response to us, or a notification.
+    // Post-hello: this is either a response to a request we sent, or a
+    // notification (e.g. logs.entry). The bridge does not initiate requests
+    // in Phase 1.
     if (msg.id != null && (msg.result !== undefined || msg.error !== undefined)) {
       dispatcher.resolveResponse(msg);
     } else if (msg.method) {
@@ -142,7 +163,7 @@ function validateHello(msg, { config, dispatcher, audit }) {
     return { ok: false, reason: `capability set "${capabilitySet}" is not defined`, closeCode: 4001 };
   }
 
-  // One connection per userId (alignment-phase rule).
+  // Refuse second connection for the same userId (alignment-phase decision).
   for (const rec of dispatcher.bridges.values()) {
     if (rec.userId === userId) {
       audit.log('hello.reject', { reason: 'duplicate userId', userId, existingSessionId: rec.sessionId });
@@ -162,6 +183,7 @@ function validateHello(msg, { config, dispatcher, audit }) {
     moduleVersion: params.moduleVersion,
     worldId: params.worldId,
     isGM: !!params.isGM,
+    settings: params.settings,
   };
 }
 

@@ -1,6 +1,18 @@
-/* damage handler: the only HP path. Never below 1 HP; lethal is human-only.
-   commit:false plans (before->after + lethal); commit:true writes atomically.
-   Hits temp HP first, then value; caller passes the final amount (no DR here). */
+// damage handler — the constrained damage primitive. Every application routes
+// through the DESIGN §9 confirmation gate at the relay; a lethal outcome
+// (any target landing below 1 HP) escalates the gate to a double confirm
+// (DatJavaClass 2026-08-09; replaces the old absolute ≥1 HP hard floor).
+//
+//   commit:false → plan only. Returns per-target before→after + lethal flag
+//                  computed on live data. Never writes. The relay picks the
+//                  confirm tier from `lethal`.
+//   commit:true  → recomputes on fresh data and applies ATOMICALLY. If
+//                  lethality appears that the gate did not approve
+//                  (allowLethal:false), nothing is written — the relay
+//                  re-gates at the double-confirm tier. No partial writes.
+//
+// Damage hits temp HP first, then value. This manipulates state; it does not
+// adjudicate DR/resistances (DESIGN §12) — the caller passes the final amount.
 
 async function resolveTarget(ref) {
   const s = String(ref ?? '').trim();
@@ -19,7 +31,7 @@ async function resolveTarget(ref) {
   const ci = game.actors.find((a) => a.name.toLowerCase() === low);
   if (ci) return ci;
   const partial = game.actors.filter((a) => a.name.toLowerCase().includes(low));
-  return partial.length === 1 ? partial[0] : null; // ambiguous -> unresolved
+  return partial.length === 1 ? partial[0] : null;   // ambiguous → unresolved
 }
 
 function hpOf(actor) {
@@ -33,7 +45,7 @@ function project({ value, temp }, amount) {
   return { after, newTemp: Math.max(0, temp - absorbed) };
 }
 
-export async function handleDamage({ targets, amount, commit } = {}) {
+export async function handleDamage({ targets, amount, commit, allowLethal } = {}) {
   if (!Array.isArray(targets) || targets.length === 0) {
     const e = new Error('damage: `targets` must be a non-empty array'); e.code = -32602; throw e;
   }
@@ -56,18 +68,18 @@ export async function handleDamage({ targets, amount, commit } = {}) {
   });
   const lethal = preview.some((p) => p.lethal);
 
-  /* Lethal: structured refusal, never throw or partial write.
-     Also catches a plan->commit HP-drop race. */
-  if (!commit || lethal) {
+  if (!commit) {
     return { committed: false, lethal, amount: amt, preview };
   }
 
-  // Commit: re-read HP, verify all before writing any.
+  // Commit: re-read live HP and verify ALL before writing ANY. An unapproved
+  // lethal outcome (plan→approve→commit race) is an atomic structured refusal:
+  // never a throw, never a partial write.
   const writes = [];
   for (const { actor } of resolved) {
     const hp = hpOf(actor);
     const { after, newTemp } = project(hp, amt);
-    if (after < 1) return { committed: false, lethal: true, amount: amt, preview };
+    if (after < 1 && !allowLethal) return { committed: false, lethal: true, amount: amt, preview };
     writes.push({ actor, after, newTemp });
   }
   const applied = [];

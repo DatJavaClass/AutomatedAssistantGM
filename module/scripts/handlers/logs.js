@@ -1,5 +1,7 @@
-/* logs.subscribe / logs.unsubscribe: emit logs.entry until unsubscribed.
-   One subscription per connection; re-subscribe replaces it. */
+// logs.subscribe / logs.unsubscribe handlers. Once subscribed, the bridge
+// emits `logs.entry` notifications (no id) until unsubscribed. Only one
+// subscription per bridge connection in Phase 1; calling subscribe again
+// replaces the existing one.
 
 let activeUnsub = null;
 

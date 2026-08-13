@@ -1,4 +1,8 @@
-// Reversible console wrap + window error taps -> subscribers.
+// Wraps console.log/info/warn/error/debug and listens for window-level errors
+// (window.error, unhandledrejection). Subscribers register a callback that
+// receives a normalized log entry. Wrapping is reversible: install() stores
+// originals, uninstall() restores them.
+
 const LEVELS = ['log', 'info', 'warn', 'error', 'debug'];
 
 export class LogTap {
@@ -44,7 +48,7 @@ export class LogTap {
     this.installed = false;
   }
 
-  // filterFn optional; false drops the entry.
+  // filterFn is optional; returning false drops the entry for this subscriber.
   subscribe(filterFn, callback) {
     const sub = { filterFn, callback };
     this.subscribers.add(sub);

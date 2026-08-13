@@ -1,4 +1,7 @@
-// Relay entry: WS + MCP in one process.
+// Entry point for the Foundry-Claude bridge relay.
+// Starts the WebSocket server (for the in-Foundry bridge module) and the MCP
+// server (for Claude clients) in a single process so they share the dispatcher,
+// audit log, and live connection state.
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +12,8 @@ import { startWsServer } from './src/ws-server.js';
 import { startMcpServer } from './src/mcp-server.js';
 import { PromptQueue } from './src/prompt-queue.js';
 import { Audit } from './src/audit.js';
+import { WorldSettings } from './src/world-settings.js';
+import { ChainRegistry } from './src/chain.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -29,7 +34,9 @@ function loadConfig() {
     console.error(`[relay] config.json is not valid JSON: ${err.message}`);
     process.exit(1);
   }
-  for (const section of ['ws', 'mcp']) { // localhost only, defense-in-depth
+  // Hard-fail if anything other than localhost is configured (defense-in-depth
+  // against accidentally exposing the bridge over the network).
+  for (const section of ['ws', 'mcp']) {
     const host = cfg?.[section]?.host;
     if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') {
       console.error(`[relay] config.${section}.host must be 127.0.0.1, localhost, or ::1 - got "${host}"`);
@@ -43,15 +50,23 @@ const config = loadConfig();
 const audit = new Audit({ stdout: true });
 const dispatcher = new Dispatcher({ audit });
 
+// `.loop-stop` in the relay dir is a local kill switch for the Claude Code
+// /loop - drop the file (or type /exit in the box) to end the loop cleanly.
 const promptQueue = new PromptQueue({
   dispatcher,
   audit,
-  stopFilePath: join(__dirname, '.loop-stop'), // local /loop kill switch
+  stopFilePath: join(__dirname, '.loop-stop'),
 });
 promptQueue.start();
 
-const ws = startWsServer({ config, dispatcher, audit });
-const mcp = await startMcpServer({ config, dispatcher, audit, promptQueue });
+// §13: world settings mirrored from the module (relay enforces), and the
+// Chain Mode grant registry (one batch at a time, gate logic consults it).
+const worldSettings = new WorldSettings({ dispatcher, audit });
+const chains = new ChainRegistry({ dispatcher, audit, settings: worldSettings });
+
+const ws = startWsServer({ config, dispatcher, audit, worldSettings });
+const mcp = await startMcpServer({ config, dispatcher, audit, promptQueue, worldSettings, chains });
+
 console.log(`[relay] ready - WS on ws://${config.ws.host}:${config.ws.port}, MCP on http://${config.mcp.host}:${config.mcp.port}/mcp`);
 
 function shutdown(reason) {

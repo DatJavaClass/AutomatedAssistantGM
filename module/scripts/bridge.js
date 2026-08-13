@@ -1,7 +1,13 @@
-// Bridge module entry: settings, WS client, handler dispatch.
+// Foundry-Claude Bridge - main module entry. Registers settings, opens (when
+// enabled) a WebSocket connection to the local relay, dispatches inbound
+// JSON-RPC requests through the handler set, and emits outbound notifications
+// (e.g. logs.entry) when the relay subscribes.
+
 import { WsClient } from './ws-client.js';
 import { LogTap } from './log-tap.js';
 import { CHAT_MACRO_COMMAND } from './chat-macro.js';
+import { registerModeSettings, settingsSnapshot } from './settings-def.js';
+import { AagmSettingsMenu } from './settings-menu.js';
 
 import { handlePing } from './handlers/ping.js';
 import { handleQueryActor } from './handlers/query-actor.js';
@@ -12,18 +18,26 @@ import { handleQueryUser } from './handlers/query-user.js';
 import { handleLogsSubscribe, handleLogsUnsubscribe } from './handlers/logs.js';
 import { handleEval } from './handlers/eval.js';
 import { handleDamage } from './handlers/damage.js';
-import { WORKSHOP_MACRO_COMMAND } from './ide-macro.js';
+import { handleLootPending, handleLootRestore } from './handlers/loot.js';
 
 const MODULE_ID = 'foundry-bridge';
-const MODULE_VERSION = '0.5.0';
+const MODULE_VERSION = '0.8.0';
 const CHAT_MACRO_NAME = 'Open Claude Code Chat';
-const WORKSHOP_MACRO_NAME = 'Claude Macro Workshop';
 
-let client = null, logTap = null;
+let client = null;
+let logTap = null;
+let wasConnected = false;
 
-// Subscriber sets survive WS reconnects (client is rebuilt).
-const replySubs = new Set(), statusSubs = new Set(), confirmSubs = new Set(), refactorSubs = new Set();
-let refactorProvider = null, lastRefactor = null;
+// Phase 2 chat channel: the auto-created macro's Dialog registers here so it
+// receives relay -> bridge `claude.reply` / `claude.status` notifications.
+// Module-scoped so they survive WS reconnects (client is rebuilt; these aren't).
+const replySubs = new Set();
+const statusSubs = new Set();
+// DESIGN §9 confirmation gate: the chat box registers here to render
+// claude.confirm cards and send the human's decision back.
+const confirmSubs = new Set();
+// §13.3 Chain Mode: grant/gate/end progress events for the box.
+const chainSubs = new Set();
 
 const HANDLERS = {
   'ping': handlePing,
@@ -36,7 +50,9 @@ const HANDLERS = {
   'logs.unsubscribe': handleLogsUnsubscribe,
   'eval': handleEval,
   'damage': handleDamage,
-  'refactor.get': () => (refactorProvider ? refactorProvider() : { open: false }), // live box, not a cache
+  // Claude Loot Watchdog rescue queue (the only allowed path to that journal).
+  'loot.pending': handleLootPending,
+  'loot.restore': handleLootRestore,
 };
 
 Hooks.once('init', () => {
@@ -58,10 +74,25 @@ Hooks.once('init', () => {
     type: String,
     default: 'ws://127.0.0.1:7878',
   });
+
+  // §13.1 AAGM-C settings: hidden world settings + the one sanctioned submenu.
+  registerModeSettings();
+  game.settings.registerMenu(MODULE_ID, 'aagmSettings', {
+    name: 'FOUNDRY_BRIDGE.SETTINGS.MenuName',
+    label: 'FOUNDRY_BRIDGE.SETTINGS.MenuLabel',
+    hint: 'FOUNDRY_BRIDGE.SETTINGS.MenuHint',
+    icon: 'fas fa-robot',
+    type: AagmSettingsMenu,
+    restricted: true,
+  });
 });
 
 Hooks.once('ready', () => {
-  // Tiny in-world debug API for a macro:
+  // The bridge is a GM-only surface. Players must never connect to (or even
+  // notice) the relay - no api, no macros, no WS client, no notifications.
+  if (!game.user.isGM) return;
+
+  // Expose a tiny in-world API for debug from a macro:
   //   game.modules.get('foundry-bridge').api.status()
   const mod = game.modules.get(MODULE_ID);
   if (mod) {
@@ -89,19 +120,26 @@ Hooks.once('ready', () => {
       onReply: (cb) => { replySubs.add(cb); return () => replySubs.delete(cb); },
       onStatus: (cb) => { statusSubs.add(cb); return () => statusSubs.delete(cb); },
       onConfirm: (cb) => { confirmSubs.add(cb); return () => confirmSubs.delete(cb); },
+      onChain: (cb) => { chainSubs.add(cb); return () => chainSubs.delete(cb); },
       sendConfirmResult: (opId, approved, reason) => {
         if (client && client.isOpen()) {
           client.send({ jsonrpc: '2.0', method: 'claude.confirm.result', params: { opId, approved: !!approved, reason } });
         }
       },
-      onRefactorSet: (cb) => { refactorSubs.add(cb); return () => refactorSubs.delete(cb); },
-      setRefactorProvider: (fn) => { refactorProvider = (typeof fn === 'function') ? fn : null; },
-      getLastRefactor: () => lastRefactor,
+      cancelChain: (chainId) => {
+        if (client && client.isOpen()) {
+          client.send({ jsonrpc: '2.0', method: 'claude.chain.cancel', params: { chainId } });
+        }
+      },
+      syncSettings: () => {
+        if (client && client.isOpen()) {
+          client.send({ jsonrpc: '2.0', method: 'settings.sync', params: settingsSnapshot() });
+        }
+      },
     };
   }
 
   ensureMacro(CHAT_MACRO_NAME, CHAT_MACRO_COMMAND, 'icons/svg/chat.svg');
-  ensureMacro(WORKSHOP_MACRO_NAME, WORKSHOP_MACRO_COMMAND, 'icons/svg/book.svg');
 
   if (game.settings.get(MODULE_ID, 'enabled')) {
     startClient();
@@ -110,7 +148,10 @@ Hooks.once('ready', () => {
   }
 });
 
-// GM-only, idempotent; refresh only our autoMacro copies.
+// The module provisions its GUI macros itself. GM-only (players don't drive
+// Claude Code), idempotent by name so a reload doesn't pile up copies. The
+// command body is kept in sync on reload, but only for macros WE created
+// (autoMacro flag) - never a hand-rolled macro that merely shares the name.
 async function ensureMacro(name, command, img) {
   try {
     if (!game.user?.isGM) return;
@@ -134,8 +175,12 @@ async function ensureMacro(name, command, img) {
 
 function startClient() {
   if (client) return;
+  // 'enabled' is client-scoped (localStorage), so a player logging in on a
+  // browser where a GM once enabled the bridge would otherwise start it.
+  if (!game.user?.isGM) return;
 
-  // Install log tap before connect; cheap without subscribers.
+  // Install the log tap before connecting so reconnect-time output is captured.
+  // The tap is cheap when no subscribers are registered.
   if (!logTap) {
     logTap = new LogTap();
     logTap.install();
@@ -167,6 +212,7 @@ function onEnabledChange(enabled) {
 }
 
 function onConnected() {
+  wasConnected = true;
   const helloId = `hello-${Date.now()}`;
   client.send({
     jsonrpc: '2.0',
@@ -178,6 +224,7 @@ function onConnected() {
       worldId: game.world.id,
       foundryVersion: game.version,
       moduleVersion: MODULE_VERSION,
+      settings: settingsSnapshot(),
     },
     id: helloId,
   });
@@ -185,15 +232,13 @@ function onConnected() {
 }
 
 function onDisconnected(info) {
-  ui.notifications?.warn(game.i18n.localize('FOUNDRY_BRIDGE.NOTIFY.Disconnected'));
-  console.log(`[foundry-bridge] disconnected: ${info?.reason || ''} (code ${info?.code || ''})`);
-}
-
-// Fan out to subscribers; label logs a thrower.
-function fanout(subs, payload, label) {
-  for (const fn of subs) {
-    try { fn(payload); } catch (err) { if (label) console.error(`[foundry-bridge] ${label} subscriber threw:`, err); }
+  // Every failed reconnect attempt also lands here; toasting each backoff
+  // tick is spam. Only a real drop of an established connection notifies.
+  if (wasConnected) {
+    ui.notifications?.warn(game.i18n.localize('FOUNDRY_BRIDGE.NOTIFY.Disconnected'));
   }
+  wasConnected = false;
+  console.log(`[foundry-bridge] disconnected: ${info?.reason || ''} (code ${info?.code || ''})`);
 }
 
 async function onMessage(msg) {
@@ -214,32 +259,41 @@ async function onMessage(msg) {
       if (replySubs.size === 0) {
         ui.notifications?.info(game.i18n.localize('FOUNDRY_BRIDGE.CHAT.ReplyWhileClosed'));
       } else {
-        fanout(replySubs, msg.params || {}, 'reply');
+        for (const fn of replySubs) {
+          try { fn(msg.params || {}); } catch (err) { console.error('[foundry-bridge] reply subscriber threw:', err); }
+        }
       }
       return;
     }
     if (msg.method === 'claude.status') {
-      fanout(statusSubs, msg.params || {}, null); // status is best-effort
+      for (const fn of statusSubs) {
+        try { fn(msg.params || {}); } catch (err) { /* status is best-effort */ }
+      }
+      return;
+    }
+    if (msg.method === 'claude.chain') {
+      for (const fn of chainSubs) {
+        try { fn(msg.params || {}); } catch (err) { /* progress is best-effort */ }
+      }
+      return;
+    }
+    if (msg.method === 'claude.listener.refused') {
+      // §13.2 lock tripped: a second loop tried to drain the box. Toast so
+      // it is visible whether or not the box is open.
+      ui.notifications?.warn(game.i18n.localize('FOUNDRY_BRIDGE.NOTIFY.SecondListener'));
       return;
     }
     if (msg.method === 'claude.confirm') {
       const p = msg.params || {};
-      // No chat box: auto-deny so Claude isn't stuck on timeout.
+      // No open chat box = no human to approve. Auto-deny so Claude isn't left
+      // waiting on the relay timeout. (A pending write must never default open.)
       if (confirmSubs.size === 0) {
         client.send({ jsonrpc: '2.0', method: 'claude.confirm.result',
           params: { opId: p.opId, approved: false, reason: 'chat-box-closed' } });
       } else {
-        fanout(confirmSubs, p, 'confirm');
-      }
-      return;
-    }
-    if (msg.method === 'claude.refactor.set') {
-      const p = msg.params || {};
-      lastRefactor = { content: p.content ?? '', macroId: p.macroId ?? null, macroName: p.macroName ?? null };
-      if (refactorSubs.size === 0) {
-        ui.notifications?.info(game.i18n.localize('FOUNDRY_BRIDGE.WORKSHOP.PushedClosed'));
-      } else {
-        fanout(refactorSubs, lastRefactor, 'refactor');
+        for (const fn of confirmSubs) {
+          try { fn(p); } catch (err) { console.error('[foundry-bridge] confirm subscriber threw:', err); }
+        }
       }
       return;
     }
@@ -273,5 +327,5 @@ async function onMessage(msg) {
       });
     }
   }
-  // Responses to our own requests are ignored (Phase 1 sends none).
+  // Anything else (responses to requests we sent - Phase 1 doesn't initiate any) is ignored.
 }

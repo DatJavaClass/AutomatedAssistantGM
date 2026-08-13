@@ -1,4 +1,5 @@
-// query.actor: actor data, optional dot-path fields.
+// query.actor handler — returns actor data, optionally narrowed to specific
+// dot-paths via the `fields` parameter.
 
 export async function handleQueryActor(params) {
   const { actorId, fields } = params || {};

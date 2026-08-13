@@ -1,4 +1,7 @@
-// Routes JSON-RPC between MCP clients and bridges.
+// Routes JSON-RPC requests and notifications between MCP clients and bridge
+// connections. Each bridge connection registers itself here on hello; the
+// dispatcher then exposes "send a method to a bridge with this capability set"
+// and "subscribe to a notification stream" primitives.
 
 import { randomUUID } from 'node:crypto';
 
@@ -7,15 +10,18 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 export class Dispatcher {
   constructor({ audit }) {
     this.audit = audit;
-    this.bridges = new Map(); // sessionId -> bridge record
-    this.pending = new Map(); // requestId -> { resolve, reject, timer, sessionId, method }
-    this.subscribers = new Map(); // notification method -> Set<fn>
+    this.bridges = new Map();      // sessionId -> bridge record
+    this.pending = new Map();      // requestId -> { resolve, reject, timer, sessionId, method }
+    this.subscribers = new Map();  // notification method -> Set<fn>
     this.confirmations = new Map(); // opId -> { resolve, timer }
-    this.subscribe('claude.confirm.result', (p) => this.resolveConfirmation(p || {})); // chat box answers here
+    // The chat box answers a confirmation request with this notification.
+    this.subscribe('claude.confirm.result', (p) => this.resolveConfirmation(p || {}));
   }
 
-  /* DESIGN §9 gate: human decides; timeout/no-bridge auto-denies.
-     Caller dispatches the write only after { approved:true }. */
+  // DESIGN §9 confirmation gate. Pushes the proposed write to the bridge (chat
+  // box) and resolves with the human's decision, or auto-denies on timeout /
+  // no bridge. The write is NOT executed here — the caller dispatches it only
+  // after { approved:true }.
   requestConfirmation({ capabilitySet, opId, kind, level, summary, code, preview, timeoutMs = 120_000 }) {
     const sent = this.notifyBridge({
       capabilitySet,
@@ -69,7 +75,7 @@ export class Dispatcher {
   }
 
   findBridge({ capabilitySet }) {
-    // One bridge per set in Phase 1; first match wins.
+    // Phase 1 expects a single bridge per capability set. Pick the first match.
     for (const rec of this.bridges.values()) {
       if (rec.capabilitySet === capabilitySet) return rec;
     }
@@ -101,8 +107,10 @@ export class Dispatcher {
     });
   }
 
-  /* Fire-and-forget, relay-initiated, so NOT capability-gated.
-     False = no matching bridge connected. */
+  // Fire-and-forget notification to the bridge (no id, no response awaited).
+  // Unlike sendToBridge this is relay-initiated, so it is NOT capability-gated:
+  // claude.reply / claude.status are things the relay pushes down, not methods
+  // the bridge requested. Returns false if no matching bridge is connected.
   notifyBridge({ capabilitySet, method, params }) {
     const bridge = this.findBridge({ capabilitySet });
     if (!bridge) return false;
@@ -111,7 +119,7 @@ export class Dispatcher {
     return true;
   }
 
-  // ws-server hands bridge responses here.
+  // Called by ws-server when a bridge sends back a JSON-RPC response.
   resolveResponse(message) {
     const id = message.id;
     if (id == null) return false;
@@ -132,7 +140,7 @@ export class Dispatcher {
     return true;
   }
 
-  // ws-server hands bridge notifications (no id) here.
+  // Called by ws-server when a bridge sends a notification (no id).
   routeNotification(message) {
     const subs = this.subscribers.get(message.method);
     if (!subs || subs.size === 0) return;

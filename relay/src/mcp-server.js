@@ -1,5 +1,11 @@
-/* MCP server (Streamable HTTP) exposing the foundry_* tools.
-   HTTP not stdio: the relay is long-running and shared. */
+// MCP server (Streamable HTTP transport) exposing the foundry_* tools that
+// Claude clients use to drive the bridge. Each tool round-trips through the
+// dispatcher to the WS-connected bridge module.
+//
+// Transport choice: Streamable HTTP rather than stdio, because the relay is a
+// long-running shared process - both Claude Code (debug) and Claude Chat
+// (AAGM, eventually) point at the same MCP endpoint. stdio would require
+// Claude Code to own the relay's lifecycle.
 
 import http from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -10,23 +16,34 @@ import { classifyEval, SEVERITY } from './eval-guard.js';
 
 const PHASE1_CAPABILITY_SET = 'debug';
 
-export async function startMcpServer({ config, dispatcher, audit, promptQueue }) {
+export async function startMcpServer({ config, dispatcher, audit, promptQueue, worldSettings, chains }) {
   const { host, port } = config.mcp;
   if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') {
     throw new Error(`refusing to bind MCP server to non-localhost address "${host}"`);
   }
 
-  /* Fresh McpServer per request: the ~25s long-poll makes a shared
-     one throw "Already connected to a transport". Costs nothing. */
+  // A fresh McpServer per request. The McpServer wraps one Protocol instance
+  // that can only be connected to a single transport at a time; with the
+  // long-poll foundry_get_prompts holding a request open ~25s, a second
+  // overlapping tool call against a shared server throws "Already connected to
+  // a transport". Per-request server + transport is the stateless pattern and
+  // costs nothing here (registerTools is just closures + zod schemas).
   const makeServer = () => {
-    const s = new McpServer({ name: 'foundry-bridge-relay', version: '0.3.0' });
-    registerTools(s, dispatcher, audit, promptQueue);
+    const s = new McpServer({ name: 'foundry-bridge-relay', version: '0.8.0' });
+    registerTools(s, dispatcher, audit, promptQueue, worldSettings, chains);
     return s;
   };
 
   const httpServer = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url === '/mcp') {
       handlePost(req, res, makeServer, audit);
+      return;
+    }
+    // Cheap liveness probe for launcher scripts: is the relay up, and is a
+    // Foundry bridge currently connected?
+    if (req.method === 'GET' && req.url === '/healthz') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, bridges: dispatcher.bridges.size }));
       return;
     }
     if ((req.method === 'GET' || req.method === 'DELETE') && req.url === '/mcp') {
@@ -65,8 +82,12 @@ async function handlePost(req, res, makeServer, audit) {
       res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32700, message: 'parse error' }, id: null }));
       return;
     }
-    /* undefined = stateless per the SDK. Stateful mode would reject every
-       follow-up: the transport is torn down after each response. */
+    // sessionIdGenerator: undefined → true stateless per the SDK. With a
+    // generator function set, the transport runs in stateful mode and rejects
+    // any non-initialize request that lacks a session ID matching this
+    // transport's - but we tear the transport down after every response, so
+    // the next request never has a matching session and gets "Server not
+    // initialized". Stateless mode skips that check entirely.
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
@@ -90,16 +111,21 @@ async function handlePost(req, res, makeServer, audit) {
   });
 }
 
-function registerTools(server, dispatcher, audit, promptQueue) {
+function registerTools(server, dispatcher, audit, promptQueue, worldSettings, chains) {
   const callBridge = (method, params) =>
     dispatcher.sendToBridge({ capabilitySet: PHASE1_CAPABILITY_SET, method, params });
   const asText = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
 
   server.tool(
     'foundry_ping',
-    'Liveness check across the Foundry-Claude bridge. Returns pong + Foundry server time. Use this first to verify the relay and the in-Foundry module are connected.',
+    'Liveness check across the Foundry-Claude bridge. Returns pong + Foundry server time + the ' +
+    'world\'s AAGM settings (`settings`: mode assistant/cogm/custom, chainOffers, multitasking, ' +
+    'macro-mirror config). Use this first to verify the relay and the in-Foundry module are ' +
+    'connected, and read `settings` to adapt: assistant mode = confirm everything individually, ' +
+    'never offer chains, prefer one bulk gated write listing all changes; cogm = chain offers ' +
+    'allowed via foundry_chain_offer.',
     {},
-    async () => asText(await callBridge('ping', {}))
+    async () => asText({ ...(await callBridge('ping', {})), settings: worldSettings.snapshot() })
   );
 
   server.tool(
@@ -191,14 +217,15 @@ function registerTools(server, dispatcher, audit, promptQueue) {
   server.tool(
     'foundry_eval',
     'Run JavaScript in the GM\'s Foundry client. READS run immediately. WRITES (create/update/' +
-    'setFlag/settings.set/move tokens/etc.) are held at a human confirmation gate - DatJavaClass sees ' +
-    'your `summary` + the exact code in the chat box and Approve/Denies; DELETES need a double ' +
-    'confirm. Always set `intent` ("read"|"write"|"destructive") and, for write/destructive, a ' +
+    'setFlag/settings.set/move tokens/HP changes/etc.) are held at a human confirmation gate - ' +
+    'DatJavaClass sees your `summary` + the exact code in the chat box and Approve/Denies; DELETES need ' +
+    'a double confirm. Always set `intent` ("read"|"write"|"destructive") and, for write/destructive, a ' +
     'short plain-English `summary` (shown to DatJavaClass). The relay takes the stricter of your ' +
     'declared intent and its own classifier, so be honest - under-declaring just forces a ' +
-    'stronger confirm, never skips it. ABSOLUTE RULES the relay enforces: (1) HP changes / ' +
-    '"kill" are refused here - use foundry_apply_damage, which floors at 1 HP; reducing anyone ' +
-    'below 1 HP is human-only. (2) Database Journals (e.g. "NPC Register" ' +
+    'stronger confirm, never skips it. HP is an ordinary gated write here (healing, setting HP, ' +
+    'reviving) - but for DAMAGE prefer foundry_apply_damage: it previews before→after on live ' +
+    'data and auto-escalates a below-1-HP outcome to a double confirm, which eval cannot. ' +
+    'ABSOLUTE RULE the relay enforces: Database Journals (e.g. "NPC Register" ' +
     'JournalEntry.yB5klzKycb6bTbcy / Mail-Mailbox Index, runManaged pages) are never touched, ' +
     'even read-only - get data the human/UI way instead, or say it needs the owning macro. ' +
     'Idioms: partial-name game.actors.filter(...includes); gold actor.system.currency.{pp,gp,' +
@@ -213,8 +240,9 @@ function registerTools(server, dispatcher, audit, promptQueue) {
       summary: z.string().optional().describe('Plain-English description shown to DatJavaClass at the gate. Required for write/destructive.'),
       awaitResult: z.boolean().optional().describe('Await a returned thenable before serializing (default true)'),
       captureConsole: z.boolean().optional().describe('Debug mode: also return everything the snippet logged (console.*) and any thrown error+stack as {console:[...],thrown}, and DO NOT fail the call on error - for debugging/variable-hunting. Stateless per call.'),
+      chainId: z.string().optional().describe('Active Chain Mode grant id (from foundry_chain_offer). Single-auth writes belonging to the granted batch auto-approve; anything destructive kills the chain and confirms normally.'),
     },
-    async ({ code, intent, summary, awaitResult, captureConsole }) => {
+    async ({ code, intent, summary, awaitResult, captureConsole, chainId }) => {
       const verdict = classifyEval(code);
       const declared = intent === 'destructive' ? 'destructive' : intent === 'write' ? 'mutating' : 'read';
       const effective = SEVERITY[verdict.category] >= SEVERITY[declared] ? verdict.category : declared;
@@ -227,13 +255,6 @@ function registerTools(server, dispatcher, audit, promptQueue) {
           `strictly off-limits even read-only. Get the data the human/UI way (sheet, compendium, ` +
           `sidebar); if it can only come from that journal, tell DatJavaClass it needs the owning macro.` });
       }
-      if (verdict.category === 'hp') {
-        audit.log('eval.blocked', { category: 'hp', match: verdict.match });
-        return asText({ blocked: true, reason:
-          `Refused - HP / "kill" changes are not allowed through eval. Use foundry_apply_damage; ` +
-          `it enforces the absolute ≥1 HP floor. Reducing anyone below 1 HP is human-only - tell ` +
-          `DatJavaClass he must deliver any lethal blow himself.` });
-      }
       if (effective === 'read') {
         return asText(await callBridge('eval', { code, awaitResult, captureConsole }));
       }
@@ -244,74 +265,119 @@ function registerTools(server, dispatcher, audit, promptQueue) {
       }
       const opId = randomUUID();
       const level = effective === 'destructive' ? 'double' : 'single';
-      const decision = await dispatcher.requestConfirmation({
-        capabilitySet: PHASE1_CAPABILITY_SET, opId, kind: 'eval', level, summary: summary.trim(), code,
-      });
-      if (!decision.approved) {
-        audit.log('eval.denied', { opId, reason: decision.reason });
-        return asText({ refused: true, reason:
-          `Not executed - ${decision.reason}. DatJavaClass did not approve. Tell him plainly; do not retry ` +
-          `unless he asks.` });
+      // Chain death on escalation (§13.3): a destructive gate mid-chain ends
+      // the batch; only the user authorizes destructive changes.
+      if (chainId && level === 'double') chains.kill('escalated-destructive');
+      const riding = !!chainId && level === 'single' && chains.consume(chainId, summary.trim());
+      if (riding) {
+        audit.log('eval.chain', { opId, chainId });
+      } else {
+        const decision = await dispatcher.requestConfirmation({
+          capabilitySet: PHASE1_CAPABILITY_SET, opId, kind: 'eval', level, summary: summary.trim(), code,
+        });
+        if (!decision.approved) {
+          audit.log('eval.denied', { opId, reason: decision.reason });
+          if (chainId) chains.kill('gate-denied');
+          return asText({ refused: true, reason:
+            `Not executed - ${decision.reason}. DatJavaClass did not approve. Tell him plainly; do not retry ` +
+            `unless he asks.` });
+        }
       }
-      // Approved: extended window, choreography runs long.
-      const r = await dispatcher.sendToBridge({
-        capabilitySet: PHASE1_CAPABILITY_SET, method: 'eval', params: { code, awaitResult, captureConsole }, timeoutMs: 300_000,
-      });
-      audit.log('eval.executed', { opId });
+      // Approved: extended window - choreography/animation can run long.
+      let r;
+      try {
+        r = await dispatcher.sendToBridge({
+          capabilitySet: PHASE1_CAPABILITY_SET, method: 'eval', params: { code, awaitResult, captureConsole }, timeoutMs: 300_000,
+        });
+      } catch (err) {
+        if (chainId) chains.kill('gate-error'); /* surprise error ends the batch */
+        throw err;
+      }
+      audit.log('eval.executed', { opId, chained: riding });
       return asText(r);
     }
   );
 
   server.tool(
     'foundry_apply_damage',
-    'Apply damage to one or more actors, with an ABSOLUTE ≥1 HP floor. Pass `targets` (names ' +
-    'or UUIDs), positive integer `amount`, and a plain-English `summary` (shown to DatJavaClass). ' +
-    'This is the ONLY way to change HP - never do HP via foundry_eval. The relay first computes ' +
-    'the result on live HP: if ANY target would land below 1 HP the WHOLE operation is REFUSED ' +
-    '(atomic, no partial application) - reducing anyone below 1 HP is human-only, so tell DatJavaClass ' +
-    'he must apply that killing blow himself. If all targets stay ≥1, it goes through a single ' +
-    'confirmation (DatJavaClass sees the before→after preview and Approve/Denies). Damage hits temp ' +
-    'HP first, then value. This manipulates state; it does not adjudicate DR/resistances - pass ' +
-    'the final amount you intend.',
+    'Apply damage to one or more actors, routed through the confirmation gate. Pass `targets` ' +
+    '(names or UUIDs), positive integer `amount`, and a plain-English `summary` (shown to ' +
+    'DatJavaClass). Prefer this over foundry_eval for damage: the relay first computes before→after ' +
+    'on live HP and picks the gate tier from the outcome - all targets staying ≥1 HP is a ' +
+    'SINGLE confirm; ANY target landing below 1 HP (lethal) escalates to a DOUBLE confirm, ' +
+    'with the preview shown either way. Application is atomic (all targets or none). Damage ' +
+    'hits temp HP first, then value. This manipulates state; it does not adjudicate ' +
+    'DR/resistances - pass the final amount you intend. For healing or setting HP directly, ' +
+    'use foundry_eval (gated write).',
     {
       targets: z.array(z.string()).min(1).describe('Actor names or UUIDs (token UUIDs resolve to their actor)'),
       amount: z.number().int().positive().describe('Damage to deal (positive integer)'),
       summary: z.string().describe('Plain-English description shown to DatJavaClass at the gate'),
       note: z.string().optional().describe('Optional context (e.g. damage source)'),
+      chainId: z.string().optional().describe('Active Chain Mode grant id. Non-lethal applications auto-approve on the chain; a lethal outcome kills the chain and double-confirms normally.'),
     },
-    async ({ targets, amount, summary, note }) => {
+    async ({ targets, amount, summary, note, chainId }) => {
       const plan = await callBridge('damage', { targets, amount, commit: false });
       if (plan && plan.error) return asText({ error: plan.error });
       audit.log('damage.plan', { n: targets.length, amount, lethal: !!plan.lethal });
-      if (plan.lethal) {
-        return asText({ refused: true, reason:
-          `LETHAL - refused. One or more targets would drop below 1 HP, and reducing anyone below ` +
-          `1 HP is human-only. Tell DatJavaClass he must apply the killing blow himself.`,
-          preview: plan.preview });
-      }
+      const level = plan.lethal ? 'double' : 'single';
       const opId = randomUUID();
-      const decision = await dispatcher.requestConfirmation({
-        capabilitySet: PHASE1_CAPABILITY_SET, opId, kind: 'damage', level: 'single',
-        summary: summary.trim(), preview: plan.preview,
-      });
-      if (!decision.approved) {
-        audit.log('damage.denied', { opId, reason: decision.reason });
-        return asText({ refused: true, reason: `Not applied - ${decision.reason}.`, preview: plan.preview });
+      // Lethal mid-chain = escalation: chain dies, manual double confirm runs.
+      if (chainId && plan.lethal) chains.kill('escalated-lethal');
+      const riding = !!chainId && !plan.lethal && chains.consume(chainId, summary.trim());
+      if (riding) {
+        audit.log('damage.chain', { opId, chainId });
+      } else {
+        const decision = await dispatcher.requestConfirmation({
+          capabilitySet: PHASE1_CAPABILITY_SET, opId, kind: 'damage', level,
+          summary: (plan.lethal ? 'LETHAL - at least one target drops below 1 HP. ' : '') + summary.trim(),
+          preview: plan.preview,
+        });
+        if (!decision.approved) {
+          audit.log('damage.denied', { opId, reason: decision.reason });
+          if (chainId) chains.kill('gate-denied');
+          return asText({ refused: true, reason: `Not applied - ${decision.reason}.`, preview: plan.preview });
+        }
       }
-      const result = await callBridge('damage', { targets, amount, commit: true });
-      audit.log('damage.commit', { opId, committed: !!result.committed });
+      const result = await callBridge('damage', { targets, amount, commit: true, allowLethal: !!plan.lethal });
+      audit.log('damage.commit', { opId, committed: !!result.committed, lethal: !!plan.lethal, chained: riding });
       if (!result.committed) {
-        // Plan->approve->commit race: a target went lethal between.
+        if (chainId) chains.kill('commit-race'); /* surprise outcome ends the batch */
+        // Plan→approve→commit race: HP moved and a single-confirmed op turned
+        // lethal - more than was approved. Never silently apply it.
         return asText({ refused: true, reason:
-          `Not applied - between approval and execution a target reached the 1 HP floor. ` +
-          `Reducing anyone below 1 HP is human-only; tell DatJavaClass.`, preview: result.preview });
+          `Not applied - between approval and execution a target's HP changed enough to make ` +
+          `this lethal, which is more than was approved. Re-issue the call to re-plan; it will ` +
+          `come back to DatJavaClass as a double confirm.`, preview: result.preview });
       }
       return asText(result);
     }
   );
 
-  /* Phase 2 chat channel: the opposite direction. DatJavaClass types
-     in the box; a /loop-driven Claude Code drains and answers. */
+  server.tool(
+    'foundry_chain_offer',
+    'Offer DatJavaClass a Chain Mode batch (DESIGN §13.3): ONE GM approval covering `count` ' +
+    'upcoming SINGLE-auth gates for one homogeneous task (e.g. "forge 10 items into compendium ' +
+    'X"). Offer only when foundry_ping settings show chainOffers=true AND you have at least ' +
+    'chainOfferThreshold same-shaped, non-destructive gated writes for one declared task. Never ' +
+    'for deletes or anything lethal - those are chain-ineligible by rule. He answers at a ' +
+    'normal confirm card; on approval you get {chainId} - pass it as `chainId` on each ' +
+    'foundry_eval / foundry_apply_damage in the batch (each still needs its honest summary; it ' +
+    'is shown live in the box). The chain dies on: any destructive/lethal escalation, any ' +
+    'error or denial, count exhausted, 10-minute TTL, or GM cancel - after which remaining ' +
+    'gates confirm manually; just continue without chainId and mention it. {refused} means no ' +
+    'chain: proceed with normal per-gate confirms, do not re-offer the same batch.',
+    {
+      count: z.number().int().min(2).describe('Exact number of gates in the batch'),
+      summary: z.string().describe('The manifest DatJavaClass approves: what the batch does, where, e.g. "Create 10 wondrous items in Bridge World Wondrous Items"'),
+    },
+    async ({ count, summary }) => asText(await chains.offer({ count, summary: summary.trim() }))
+  );
+
+  // --- Phase 2: Foundry → Claude Code chat channel ---------------------------
+  // These two run the opposite direction from everything above: DatJavaClass types in
+  // the in-Foundry "Open Claude Code Chat" box, and *this* Claude Code session
+  // (driven by a /loop) drains and answers.
 
   server.tool(
     'foundry_get_prompts',
@@ -322,9 +388,21 @@ function registerTools(server, dispatcher, audit, promptQueue) {
     'server provides the pacing and pickup is near-instant. Calling this marks the box "Ready to ' +
     'chat". If `terminate` is true, STOP the loop immediately - do not reschedule, do not poll ' +
     'again - DatJavaClass requested shutdown via /exit or the local .loop-stop file. Answer each ' +
-    'prompt with foundry_send_reply.',
-    {},
-    async () => {
+    'prompt with foundry_send_reply. `listenerId` is REQUIRED: generate one random id at loop ' +
+    'start and reuse it for every poll this session. Only ONE listener may drain the box - a ' +
+    'poll with a different listenerId while another is active errors with listener-occupied ' +
+    '(-33005): report that briefly and EXIT; never retry with a new id.',
+    {
+      listenerId: z.string().min(4).describe('Stable per-loop id, generated once at loop start'),
+    },
+    async ({ listenerId }) => {
+      if (!promptQueue.claimListener(listenerId)) {
+        audit.log('chat.refused', { listenerId });
+        dispatcher.notifyBridge({ capabilitySet: PHASE1_CAPABILITY_SET, method: 'claude.listener.refused', params: {} });
+        const err = new Error('listener-occupied: another AAGM loop is already draining this box (DESIGN §13.2 single-listener lock). Report this briefly and exit - do not retry, do not pick a new listenerId.');
+        err.code = -33005;
+        throw err;
+      }
       await promptQueue.waitForWork();
       const r = promptQueue.drain();
       if (r.prompts.length || r.terminate) {
@@ -355,42 +433,47 @@ function registerTools(server, dispatcher, audit, promptQueue) {
     }
   );
 
-  // Claude Macro Workshop window, push and read.
+  // --- Claude Loot Watchdog rescue queue --------------------------------------
 
   server.tool(
-    'foundry_workshop_set',
-    'Push code into the Claude Macro Workshop\'s Refactor Box (the IDE-style editor in the ' +
-    '"Claude Macro Workshop" window). Use this to LOAD a macro for editing or to hand DatJavaClass a ' +
-    'refactor/fix: first read the macro (foundry_eval: game.macros.getName(x) → {id,name,command}), ' +
-    'then call this with the full `content`, plus `macroId`+`macroName` so the Workshop\'s Save ' +
-    'targets the right macro (Save makes a rolling "<name>.old" backup then overwrites the ' +
-    'original to keep its id/links). For a brand-new macro, pass `macroName` only (no macroId). ' +
-    'Saving is DatJavaClass\'s button - never try to save/overwrite a macro via foundry_eval. Returns ' +
-    '{delivered}; false = the Workshop window isn\'t open (tell DatJavaClass to open "Claude Macro ' +
-    'Workshop" - the push is held and shown when he opens it).',
-    {
-      content: z.string().describe('Full macro/script source to place in the editor'),
-      macroId: z.string().optional().describe('Existing macro id this content came from (Save target)'),
-      macroName: z.string().optional().describe('Macro name (existing, or the proposed name for a new macro)'),
-    },
-    async ({ content, macroId, macroName }) => {
-      const delivered = dispatcher.notifyBridge({
-        capabilitySet: PHASE1_CAPABILITY_SET,
-        method: 'claude.refactor.set',
-        params: { content, macroId, macroName },
-      });
-      audit.log('workshop.set', { len: content.length, macroId: macroId || null, delivered });
-      return asText({ delivered });
-    }
+    'foundry_loot_pending',
+    'Read the Claude Loot Watchdog rescue queue. Returns { pending, phantoms, legacyCount }. ' +
+    '`pending` = real items that left an Item Pile but never landed on the looting character ' +
+    '(each has eventId, item, shortfall, recipient, looter, pile, ts) - restore these with ' +
+    'foundry_restore_loot, no need to ask first. `phantoms` = pf1 "trait as loot" records ' +
+    '(statblock gear with an invalid equipment subType that the sheet cannot render) - NEVER ' +
+    'restorable; report each one to DatJavaClass in the chat box (item, pile, looter, outcome ' +
+    'landed/lost), then acknowledge via foundry_restore_loot ackPhantoms so it is not ' +
+    're-reported. Call this once per loop pass; requires the watchdog macro to be armed for ' +
+    'new events to appear.',
+    {},
+    async () => asText(await callBridge('loot.pending', {}))
   );
 
   server.tool(
-    'foundry_workshop_get',
-    'Read the Claude Macro Workshop editor\'s CURRENT live content - DatJavaClass\'s edits included - ' +
-    'so you can refine/debug what is actually in the box (never assume; read ground truth). ' +
-    'Returns { open, content, macroId, macroName }. open:false means the Workshop window is not ' +
-    'open. Do not use this to confirm a foundry_workshop_set landed; use it to see DatJavaClass\'s edits.',
-    {},
-    async () => asText(await callBridge('refactor.get', {})),
+    'foundry_restore_loot',
+    'Restore vanished loot recorded by the Claude Loot Watchdog. This is a constrained, ' +
+    'PRE-AUTHORIZED primitive (DatJavaClass 2026-07-14): no confirmation gate, because it can ' +
+    'only recreate exactly what the watchdog recorded, in the recorded shortfall quantity, on ' +
+    'the recorded recipient - nothing else. Omit `eventIds` to restore everything pending. ' +
+    'Each restored entry is removed from the queue only after the item verifiably exists, so ' +
+    'repeat calls can never double-grant. Phantom records cannot be restored through this or ' +
+    'any other path; pass their eventIds in `ackPhantoms` (after reporting them to ' +
+    'DatJavaClass) to clear them from the queue. Returns { restored, failed, ackedPhantoms } - ' +
+    'summarize the result in the chat box.',
+    {
+      eventIds: z.array(z.string()).optional().describe('Pending eventIds to restore; omit for all pending'),
+      ackPhantoms: z.array(z.string()).optional().describe('Phantom eventIds to acknowledge and clear (report them first)'),
+    },
+    async ({ eventIds, ackPhantoms }) => {
+      const r = await callBridge('loot.restore', { eventIds, ackPhantoms });
+      audit.log('loot.restore', {
+        requested: eventIds?.length ?? 'all',
+        restored: r?.restored?.length ?? 0,
+        failed: r?.failed?.length ?? 0,
+        ackedPhantoms: r?.ackedPhantoms ?? 0,
+      });
+      return asText(r);
+    }
   );
 }

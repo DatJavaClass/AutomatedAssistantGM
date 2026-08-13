@@ -1,7 +1,9 @@
 <p align="center"> <img width="420" alt="CodeMan" src="Docs/assets/CodeMan.png" /> </p>
 
 
-# AAGM - Foundry ↔ Claude Bridge
+# AAGM-C: Automated Assistant Game Master - Claude
+
+*Foundry ↔ Claude bridge. Formerly plain "AAGM". The -C marks the Claude member of the family, with an OpenAI sibling (AAGM-O) in development.*
 
 **Jump to:** [Installation](#installation) · [Setup](#a-setup-one-time) · [Using it](#b-using-it-once-deployed) · [Troubleshooting](#troubleshooting-quick-hits) · [The Plug-in API](#the-plug-in-api) · [License](#license)
 
@@ -82,21 +84,25 @@ Add `--scope user` if you want the tools available from any directory.
 ### What Claude can do (MCP tools)
 - **Read:** `foundry_ping`, `foundry_query_actor`, `foundry_query_scene`, `foundry_query_macro`, `foundry_query_journal`, `foundry_query_user`, `foundry_tail_logs`.
 - **Eval:** `foundry_eval` runs JS in the GM client. Reads run freely; mutating/destructive code is reclassified at the relay and routed through the confirmation gate. DB-backing journals are hard-refused.
-- **Damage:** `foundry_apply_damage` is the **only** HP path and enforces an **absolute ≥1 HP floor** - Claude can never drop an actor below 1 HP. Lethal is human-only. HP changes via `foundry_eval` are blocked.
+- **Damage:** `foundry_apply_damage` previews before→after on live HP and picks the gate tier from the outcome: everyone stays at 1+ HP is a single confirm, anything landing below 1 HP escalates to a **double** confirm. Healing or setting HP directly is an ordinary gated `foundry_eval` write.
 - **Chat channel:** `foundry_get_prompts` / `foundry_send_reply`.
-- **Workshop:** `foundry_workshop_set` / `foundry_workshop_get`.
+- **Loot rescue:** `foundry_loot_pending` / `foundry_restore_loot` (see the Claude Loot Watchdog below).
+- **Chain Mode:** `foundry_chain_offer` - one approval covering a declared batch of same-shaped writes (Co-GM/Custom modes only; see the Change Log).
 
 ### Two GUI surfaces (auto-created macros in Foundry)
 Both appear in your macro directory once the bridge connects:
 - **"Open Claude Code Chat"** - the in-Foundry chat box. To use it: in Claude Code run a tight loop that calls `foundry_get_prompts` (it long-polls ≤25s) and answers with `foundry_send_reply`, e.g. `/loop 2s` instructed to call `foundry_get_prompts` back-to-back. Open the macro: it shows "Ready to chat" once the loop polls; type → Claude answers in the box. Write requests render an **Approve/Deny** card (deletes need a **double** confirm).
-- **"Claude Macro Workshop"** - editor window for refactoring macros with Claude. Save is user-initiated (rolls a `<name>.old` backup, keeps the macro id). NOTE: THIS IS A WIP!
+- **"Claude Loot Watchdog"** - run it to ARM; it records any loot that vanishes mid-transfer from an Item Pile, and the loop auto-restores exactly what was recorded (recorded item, recorded quantity, recorded recipient, nothing else). Run it again to disarm.
+
+### Pick your mode
+*Configure Settings → AAGM-C Settings* (GM only). **Assistant Mode** is the default: every change individually confirmed. **Co-GM Mode** trusts you with multitasking and Chain Mode offers. **Custom** unlocks the individual switches, including the local **Macro Mirror** (that one is available in every mode).
 
 ### Stop
 - End the chat loop: type `/exit` in the box, or `touch relay/.loop-stop`.
 - Stop the relay: `Ctrl+C`.
 
 ### Safety gates (do not bypass)
-Confirmation gate on all writes · double-confirm on deletes · ≥1 HP floor (lethal = human-only) · DB-journal access refused · relay binds localhost only. These are load-bearing - never weaken them.
+Confirmation gate on all writes · double-confirm on deletes and lethal outcomes · Chain Mode never covers destructive work · DB-journal access refused · one chat-box listener at a time · relay binds localhost only. These are load-bearing - never weaken them.
 
 ---
 
@@ -111,7 +117,7 @@ Confirmation gate on all writes · double-confirm on deletes · ≥1 HP floor (l
 
 ---
 
-> ⚠️ **Known operator hazard: Claude's Fireball obsession.** The assistant driving this bridge has been observed reaching for *Fireball* as the answer to essentially any problem - including corrupted actors (immune: they're JSON), incorporeal threats, and the occasional merge conflict. If a fix proposal includes "and then a 8d6 evocation," apply the ≥1 HP floor, deny the gate, and gently suggest a saving throw. The spell list is wider than it looks.
+> ⚠️ **Known operator hazard: Claude's Fireball obsession.** The assistant driving this bridge has been observed reaching for *Fireball* as the answer to essentially any problem - including corrupted actors (immune: they're JSON), incorporeal threats, and the occasional merge conflict. If a fix proposal includes "and then a 8d6 evocation," deny the gate and gently suggest a saving throw. The spell list is wider than it looks.
 
 ---
 
@@ -122,6 +128,29 @@ The bridge is extensible, and the four plug-ins below are the proof: each one is
 ---
 
 <p align="center"> <img width="420" alt="PatchBoy" src="Docs/assets/PatchBoy.png" /> </p>
+
+# Change Log
+
+What changed and when. Newest first, no archaeology required.
+
+**0.8.0 - The AAGM-C Update (2026-08-13)**
+- AAGM is now **AAGM-C: Automated Assistant Game Master - Claude**. Same bridge, clearer name, and an OpenAI sibling (AAGM-O) is in development.
+- A real settings menu at *Configure Settings → AAGM-C Settings*. Three presets: Assistant confirms everything, Co-GM trusts you, Custom hands you the switches.
+- **Chain Mode.** Ten same-shaped writes no longer cost ten Approve clicks, one approval covers the declared batch. Anything destructive kills the chain on the spot.
+- **Macro Mirror.** "Claude, back up all the macros" now means exactly that. Old versions rotate to `.bkp`, the mirror never deletes.
+- **Single-listener lock.** One Claude loop per chat box now, a second gets refused with a toast. Two loops once split one conversation down the middle and I spent an afternoon diagnosing my "amnesiac" assistant, never again.
+- Contextual sorting (Experimental) files backups into the local folders that mostly match your Foundry folders, checkmarks and all. "Apple" will never match "Banana", and that is why the box says Experimental.
+
+**0.7.0 (2026-08-09)**
+- The Macro Workshop is retired. Good idea, wrong medium, and macro pushes ride the gated eval now.
+- The absolute ≥1 HP floor is gone. HP writes are ordinary gated writes, and any outcome below 1 HP escalates to a double confirm.
+
+**0.6.0 (2026-07-14)**
+- **Claude Loot Watchdog.** When an Item Pile transfer eats loot, the watchdog records it and Claude restores exactly what vanished. Nothing more, nothing less.
+- One-click startup: `AAGM.cmd` brings up the relay, the loop, and your session.
+- `GET /healthz` on the relay, so launcher scripts can ask before they leap.
+
+---
 
 # Claude Item Forge (plug-in macro)
 

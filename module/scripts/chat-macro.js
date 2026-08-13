@@ -1,5 +1,15 @@
-/* "Open Claude Code Chat" macro source, serialized via .toString().
-   Self-contained: runtime globals + module api only. */
+// Phase 2 — source for the auto-created "Open Claude Code Chat" macro.
+//
+// The chat box is a Dialog, NOT a module Application class: the bridge module
+// still ships no GUI surface of its own (CLAUDE.md, relaxed for Phase 2). We
+// author it as a real function and serialize it with Function.prototype
+// .toString() so its own template literals / ${} don't need hand-escaping.
+// Safe because there is no build/minify step (locked decision 7).
+//
+// chatBoxMain must stay self-contained: it may reference only runtime globals
+// (game, ui, Dialog, document, window, console, set/clearInterval) and the
+// module's public API at game.modules.get('foundry-bridge').api. No closures
+// over this file's scope survive .toString().
 
 async function chatBoxMain() {
   const MODULE_ID = 'foundry-bridge';
@@ -7,7 +17,8 @@ async function chatBoxMain() {
   const LAYOUT_ID = 'ccc-claude-code-chat-layout';
   const L = (k) => game.i18n.localize('FOUNDRY_BRIDGE.CHAT.' + k);
 
-  // Prefer "VTT Macro Styles" journal, else inline CSS.
+  // Style loader, per Foundry JS/Stylesfolderhowto: prefer the "VTT Macro
+  // Styles" journal, fall back to inline CSS if it can't be read.
   async function injectMacroStyles(styleId, pageName, fallbackCSS) {
     if (document.getElementById(styleId)) return;
     let css = fallbackCSS || '';
@@ -28,7 +39,7 @@ async function chatBoxMain() {
     document.head.appendChild(style);
   }
 
-  // Minimal dark fallback if the journal is gone.
+  // Minimal Dark Theme fallback — enough to stay readable if the journal is gone.
   const FALLBACK_CSS = `
     .forge-dialog-dark { background:#1a1a1a; color:#e0e0e0; }
     .forge-dialog-dark .section { background:#2a2a2a; border:1px solid #00ffcc; padding:8px; border-radius:4px; }
@@ -38,11 +49,13 @@ async function chatBoxMain() {
 
   await injectMacroStyles(STYLE_ID, 'Dark Theme', FALLBACK_CSS);
 
-  // Chat layout, prefixed ccc-; typed text forced white.
+  // Chat-specific layout — kept out of the shared theme (style guide rule),
+  // prefixed `ccc-`. Typed text is forced pure white per DatJavaClass's instruction.
   if (!document.getElementById(LAYOUT_ID)) {
     const s = document.createElement('style');
     s.id = LAYOUT_ID;
-    // Explicit heights: flex:1 collapses in a Foundry Dialog.
+    // Vertical stack with explicit heights — flex:1 against a Foundry Dialog's
+    // indefinite content height collapses, which is what squished the old box.
     s.textContent = `
       .ccc-wrap { display:flex; flex-direction:column; gap:8px; }
       .ccc-status { font-size:12px; padding:5px 8px; border-radius:3px; border:1px solid #00ffcc; }
@@ -62,6 +75,7 @@ async function chatBoxMain() {
                    border:1px solid #00ffcc; border-radius:4px; padding:8px;
                    font-family:inherit; font-size:13px; }
       .ccc-input::placeholder { color:#888; }
+      .ccc-input.ccc-drop { border-color:#ffaa00; box-shadow:0 0 6px rgba(255,170,0,0.4); }
       .ccc-send { display:block; width:100%; box-sizing:border-box; padding:9px 0;
                   background:#00ffcc; color:#0a0a0a; border:none; border-radius:4px;
                   cursor:pointer; font-weight:600; font-size:14px; }
@@ -101,7 +115,7 @@ async function chatBoxMain() {
   }
 
   const content = `
-    <div class="forge-dialog-dark ccc-wrap">
+    <div class="forge-dialog-dark ccc-wrap" data-ccc="wrap">
       <div class="ccc-status warn" data-ccc="status">${L('StatusNoListener')}</div>
       <div class="ccc-log" data-ccc="log"></div>
       <textarea class="ccc-input" data-ccc="input" placeholder="${L('Placeholder')}"></textarea>
@@ -123,7 +137,7 @@ async function chatBoxMain() {
       msg.appendChild(who);
     }
     const body = document.createElement('span');
-    body.textContent = text; // textContent: no HTML injection, newlines kept by CSS
+    body.textContent = text;            // textContent: no HTML injection, newlines kept by CSS
     msg.appendChild(body);
     log.appendChild(msg);
     log.scrollTop = log.scrollHeight;
@@ -139,7 +153,9 @@ async function chatBoxMain() {
       : L('StatusNoListener');
   };
 
-  // §9 confirm card; "double" needs a second approval.
+  // DESIGN §9 confirmation gate. Renders a card with the summary + the exact
+  // code (eval) or HP preview (damage) and Approve/Deny. level "double"
+  // (deletes) requires a distinct second approval. Decision → api.sendConfirmResult.
   const renderConfirm = (p) => {
     const log = $el('log');
     if (!log || !p || !p.opId) return;
@@ -148,7 +164,7 @@ async function chatBoxMain() {
 
     const h = document.createElement('div');
     h.className = 'ccc-cf-h';
-    h.textContent = (p.level === 'double' ? L('ConfirmDestructive') : L('ConfirmWrite')) + ' - ' + (p.kind || 'op');
+    h.textContent = (p.level === 'double' ? L('ConfirmDestructive') : L('ConfirmWrite')) + ' — ' + (p.kind || 'op');
     card.appendChild(h);
 
     const sum = document.createElement('div');
@@ -229,6 +245,33 @@ async function chatBoxMain() {
     log.scrollTop = log.scrollHeight;
   };
 
+  // Drag-and-drop capture: dropping a document (actor, item, journal, ...)
+  // from a sidebar, compendium, or open sheet inserts a @UUID reference at the
+  // cursor instead of the browser's default raw-JSON text paste. Non-document
+  // drags (no uuid in the payload) fall through to default behavior.
+  // v12-specific surfaces: the TextEditor and fromUuidSync globals (v13 moves
+  // TextEditor under foundry.applications.ux).
+  const insertRef = (ta, ref) => {
+    const start = ta.selectionStart ?? ta.value.length;
+    const end = ta.selectionEnd ?? start;
+    const before = ta.value.slice(0, start);
+    const pad = before && !/\s$/.test(before) ? ' ' : '';
+    ta.value = before + pad + ref + ' ' + ta.value.slice(end);
+    ta.selectionStart = ta.selectionEnd = (before + pad + ref + ' ').length;
+    ta.focus();
+  };
+  const onDrop = (ev) => {
+    let data = null;
+    try { data = TextEditor.getDragEventData(ev); } catch (e) { return; }
+    if (!data?.uuid) return;
+    ev.preventDefault();
+    const ta = $el('input');
+    if (!ta) return;
+    let name = null;
+    try { name = fromUuidSync(data.uuid)?.name || null; } catch (e) { /* uuid alone still resolves on Claude's side */ }
+    insertRef(ta, name ? `@UUID[${data.uuid}]{${name}}` : `@UUID[${data.uuid}]`);
+  };
+
   const submit = () => {
     const ta = $el('input');
     const text = (ta?.value || '').trim();
@@ -240,11 +283,50 @@ async function chatBoxMain() {
     ta.focus();
   };
 
-  // Subscribe to relay pushes; tear down on close.
+  // §13.3 Chain Mode progress: one reusable card - grant creates it, each
+  // gate updates it, end freezes it. Cancel button rides the card while live.
+  let chainCard = null;
+  const onChain = (p) => {
+    const log = $el('log');
+    if (!log || !p) return;
+    if (p.event === 'grant') {
+      chainCard = document.createElement('div');
+      chainCard.className = 'ccc-msg ccc-confirm';
+      const h = document.createElement('div');
+      h.className = 'ccc-cf-h';
+      h.textContent = L('ChainActive');
+      chainCard.appendChild(h);
+      const prog = document.createElement('div');
+      prog.className = 'ccc-cf-sum';
+      prog.dataset.ccc = 'chainprog';
+      prog.textContent = `0/${p.count} - ${p.text || ''}`;
+      chainCard.appendChild(prog);
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'ccc-cf-btn ccc-cf-deny';
+      cancel.textContent = L('ChainCancel');
+      cancel.addEventListener('click', () => { try { api.cancelChain(p.chainId); } catch (e) {} });
+      chainCard.appendChild(cancel);
+      log.appendChild(chainCard);
+      log.scrollTop = log.scrollHeight;
+    } else if (p.event === 'gate' && chainCard) {
+      const prog = chainCard.querySelector('[data-ccc="chainprog"]');
+      if (prog) prog.textContent = `${p.n}/${p.count} - ${p.text || ''}`;
+      log.scrollTop = log.scrollHeight;
+    } else if (p.event === 'end') {
+      chainCard?.querySelector('button')?.remove();
+      chainCard = null;
+      addMsg('sys', `${L('ChainEnded')} ${p.n}/${p.count} (${p.text || ''})`);
+    }
+  };
+
+  // Subscribe to relay pushes once, before the dialog opens; tear down on close.
   const unsubReply = api.onReply((p) => addMsg('claude', p?.text ?? ''));
   const unsubStatus = api.onStatus((p) => setStatus(p?.state || 'no-listener'));
   const unsubConfirm = api.onConfirm((p) => renderConfirm(p || {}));
-  let poll = null, wasConnected = true;
+  const unsubChain = api.onChain ? api.onChain(onChain) : null;
+  let poll = null;
+  let wasConnected = true;
 
   const dlg = new Dialog({
     title: L('Title'),
@@ -258,12 +340,21 @@ async function chatBoxMain() {
       ta?.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); submit(); }
       });
+      // Whole box is the drop zone (forgiving aim); the input highlights as
+      // the landing spot. Depth counter because child enter/leave pairs bubble.
+      const wrap = $el('wrap');
+      let dragDepth = 0;
+      const undrop = () => { dragDepth = 0; $el('input')?.classList.remove('ccc-drop'); };
+      wrap?.addEventListener('dragenter', (ev) => { ev.preventDefault(); dragDepth++; $el('input')?.classList.add('ccc-drop'); });
+      wrap?.addEventListener('dragleave', () => { dragDepth--; if (dragDepth <= 0) undrop(); });
+      wrap?.addEventListener('dragover', (ev) => ev.preventDefault());
+      wrap?.addEventListener('drop', (ev) => { undrop(); onDrop(ev); });
       setStatus(api.isConnected() ? 'no-listener' : 'disconnected');
       api.requestStatus();
       poll = setInterval(() => {
         const c = api.isConnected();
         if (!c) setStatus('disconnected');
-        else if (!wasConnected) { api.requestStatus(); } // reconnected: refresh
+        else if (!wasConnected) { api.requestStatus(); }   // reconnected: refresh
         wasConnected = c;
       }, 3000);
       setTimeout(() => $el('input')?.focus(), 50);
@@ -272,6 +363,7 @@ async function chatBoxMain() {
       try { unsubReply?.(); } catch (e) {}
       try { unsubStatus?.(); } catch (e) {}
       try { unsubConfirm?.(); } catch (e) {}
+      try { unsubChain?.(); } catch (e) {}
       if (poll) { clearInterval(poll); poll = null; }
     },
   }, { width: 560, resizable: false, classes: ['ccc-dialog'] });

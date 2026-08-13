@@ -1,8 +1,8 @@
 {
   "id": "foundry-bridge",
-  "title": "AAGM Project",
-  "description": "Bridge module that exposes a controlled command channel from a running Foundry VTT instance to a local relay process, enabling Claude (Code/Chat) to assist with debug and AAGM workflows.",
-  "version": "0.7.0",
+  "title": "AAGM-C: Automated Assistant Game Master - Claude",
+  "description": "Bridge module that exposes a controlled command channel from a running Foundry VTT instance to a local relay process, enabling Claude (Code/Chat) to assist with debug and AAGM workflows. The Claude member of the AAGM family (see also AAGM-O, the OpenAI version).",
+  "version": "0.8.0",
   "compatibility": {
     "minimum": "12",
     "verified": "12.343",
@@ -14,7 +14,7 @@
   "languages": [
     { "lang": "en", "name": "English", "path": "lang/en.json" }
   ],
-  "url": "https://github.com/DatJavaClass/AutomatedAssistantGM",
-  "manifest": "https://github.com/DatJavaClass/AutomatedAssistantGM/releases/latest/download/module.json",
-  "download": "https://github.com/DatJavaClass/AutomatedAssistantGM/releases/latest/download/module.zip"
+  "url": "https://www.dropbox.com/scl/fo/n6vfuyk56ukddvsfp8qk2/AIbuGpJPeCOIvzL2rhrr0oA?rlkey=vm0fg6znsb1jt9ewucuxmp6rp&dl=0",
+  "manifest": "https://www.dropbox.com/scl/fi/klvcx4tctavsy6f6of689/module.json?rlkey=pxfa56pzj3o8389l8l2ybbm03&dl=1",
+  "download": "https://www.dropbox.com/scl/fi/suy5de79rdsd0aqf9wma9/module.zip?rlkey=5jfyp9271xhsa2d2gnlsmgobb&dl=1"
 }
