@@ -1,27 +1,25 @@
-// Chain Mode (DESIGN §13.3; ceiling = CLAUDE.md locked decision #8).
-// One chain at a time: a GM-approved grant to auto-approve N pre-declared
-// SINGLE-auth gates for one homogeneous task. Anything surprising - an
-// escalation, an error, a denial, TTL, GM cancel - kills the chain and all
-// remaining gates revert to manual confirmation. Only the user authorizes
-// destructive changes; this never grows toward Auto Mode.
+// Chain Mode (DESIGN §13.3; ceiling locked, CLAUDE.md #8).
+// One grant auto-approves N declared single-auth gates.
+// ANY surprise kills the chain; rest confirm manually.
+// Destructive stays human-only. Never grows toward Auto Mode.
 
 import { randomUUID } from 'node:crypto';
 
-const TTL_MS = 10 * 60_000;     /* grant lifetime */
-const CAPABILITY_SET = 'debug'; /* same single-bridge routing as prompt-queue */
+const TTL_MS = 10 * 60_000; /* grant lifetime */
+const CAPABILITY_SET = 'debug'; /* same routing as prompt-queue */
 
 export class ChainRegistry {
   constructor({ dispatcher, audit, settings }) {
     this.dispatcher = dispatcher;
     this.audit = audit;
     this.settings = settings;
-    this.active = null;          /* { chainId, count, used, summary, expiresAt } */
+    this.active = null; /* { chainId, count, used, summary, expiresAt } */
     dispatcher.subscribe('claude.chain.cancel', (p) => {
       if (this.active && p?.chainId === this.active.chainId) this.kill('gm-cancel');
     });
   }
 
-  // Claude proposes a batch; the GM answers at a normal single-confirm card.
+  // Claude offers; GM answers one single-confirm card.
   async offer({ count, summary }) {
     if (!this.settings.get('chainOffers')) return { refused: true, reason: 'chain-offers-disabled' };
     if (this.active) return { refused: true, reason: 'chain-already-active' };
@@ -44,7 +42,7 @@ export class ChainRegistry {
     return { chainId, count, expiresInSeconds: TTL_MS / 1000 };
   }
 
-  // One gate tries to ride the chain. False = confirm manually instead.
+  // Gate rides the chain; false = confirm manually.
   consume(chainId, gateSummary) {
     const a = this.active;
     if (!a || a.chainId !== chainId) return false;

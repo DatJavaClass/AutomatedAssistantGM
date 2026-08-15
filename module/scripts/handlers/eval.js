@@ -1,11 +1,11 @@
-// eval handler (DESIGN §7) — runs JS in the GM client context so Claude Code
+// eval handler (DESIGN §7) - runs JS in the GM client context so Claude Code
 // can inspect anything the GM sees: actors, items, scenes, tiles, compendia,
 // folders, macros, playlists, tables, settings.
 //
 // This handler is full power by design (it's the debug channel, human-in-loop
 // per DESIGN §4.2). The READ-ONLY discipline for this stage is enforced
 // upstream: the relay's eval-guard refuses mutating/destructive code before it
-// ever reaches here. Don't add a second, weaker guard in here — keep the gate
+// ever reaches here. Don't add a second, weaker guard in here - keep the gate
 // in one auditable place.
 //
 // `code` is treated as an async function body: use `return` to produce a
@@ -24,7 +24,7 @@ export async function handleEval({ code, awaitResult, captureConsole } = {}, ctx
 
   // Console-capture mode (Feature 1): collect everything this execution prints
   // or throws and return it WITH the result instead of throwing, so a debug
-  // snippet's logs/errors survive even when it fails. Stateless — each call is
+  // snippet's logs/errors survive even when it fails. Stateless - each call is
   // independent. Reuses the existing LogTap; capped so a noisy loop can't flood.
   const capture = !!captureConsole;
   const lines = [];
@@ -45,13 +45,13 @@ export async function handleEval({ code, awaitResult, captureConsole } = {}, ctx
 
   let runner;
   try {
-    // (new Function(...))() — not raw eval — so user code can't see or clobber
+    // (new Function(...))() - not raw eval - so user code can't see or clobber
     // this handler's scope. Wrapped in an async IIFE for return + await.
     runner = new Function('"use strict"; return (async () => {\n' + code + '\n})();');
   } catch (err) {
     try { unsub?.(); } catch (e) {}
-    if (capture) return withConsole({ ok: false, thrown: { message: `syntax error — ${err.message}` } });
-    const e = new Error(`eval: syntax error — ${err.message}`);
+    if (capture) return withConsole({ ok: false, thrown: { message: `syntax error - ${err.message}` } });
+    const e = new Error(`eval: syntax error - ${err.message}`);
     e.code = -33002;
     throw e;
   }
@@ -71,7 +71,7 @@ export async function handleEval({ code, awaitResult, captureConsole } = {}, ctx
         thrown: { message: String(err?.message || err), stack: (err?.stack || '').slice(0, 4000) },
       });
     }
-    const e = new Error(`eval: execution threw — ${err?.message || String(err)}`);
+    const e = new Error(`eval: execution threw - ${err?.message || String(err)}`);
     e.code = -33002;
     e.data = { stack: (err?.stack || '').slice(0, 4000) };
     throw e;

@@ -1,4 +1,4 @@
-// Phase 2 — source for the auto-created "Open Claude Code Chat" macro.
+// Auto-created "Open Claude Code Chat" macro source.
 //
 // The chat box is a Dialog, NOT a module Application class: the bridge module
 // still ships no GUI surface of its own (CLAUDE.md, relaxed for Phase 2). We
@@ -39,7 +39,7 @@ async function chatBoxMain() {
     document.head.appendChild(style);
   }
 
-  // Minimal Dark Theme fallback — enough to stay readable if the journal is gone.
+  // Dark Theme fallback if the journal is gone.
   const FALLBACK_CSS = `
     .forge-dialog-dark { background:#1a1a1a; color:#e0e0e0; }
     .forge-dialog-dark .section { background:#2a2a2a; border:1px solid #00ffcc; padding:8px; border-radius:4px; }
@@ -49,13 +49,12 @@ async function chatBoxMain() {
 
   await injectMacroStyles(STYLE_ID, 'Dark Theme', FALLBACK_CSS);
 
-  // Chat-specific layout — kept out of the shared theme (style guide rule),
-  // prefixed `ccc-`. Typed text is forced pure white per DatJavaClass's instruction.
+  // Chat-only layout, ccc- prefixed, out of shared theme.
+  // Typed text forced pure white (DatJavaClass's instruction).
   if (!document.getElementById(LAYOUT_ID)) {
     const s = document.createElement('style');
     s.id = LAYOUT_ID;
-    // Vertical stack with explicit heights — flex:1 against a Foundry Dialog's
-    // indefinite content height collapses, which is what squished the old box.
+    // Explicit heights; flex:1 collapses in Foundry Dialogs.
     s.textContent = `
       .ccc-wrap { display:flex; flex-direction:column; gap:8px; }
       .ccc-status { font-size:12px; padding:5px 8px; border-radius:3px; border:1px solid #00ffcc; }
@@ -164,7 +163,7 @@ async function chatBoxMain() {
 
     const h = document.createElement('div');
     h.className = 'ccc-cf-h';
-    h.textContent = (p.level === 'double' ? L('ConfirmDestructive') : L('ConfirmWrite')) + ' — ' + (p.kind || 'op');
+    h.textContent = (p.level === 'double' ? L('ConfirmDestructive') : L('ConfirmWrite')) + ' - ' + (p.kind || 'op');
     card.appendChild(h);
 
     const sum = document.createElement('div');

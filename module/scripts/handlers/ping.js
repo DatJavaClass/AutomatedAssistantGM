@@ -1,4 +1,4 @@
-// ping handler — liveness check. Returns server time so the caller can verify
+// ping handler - liveness check. Returns server time so the caller can verify
 // it's the Foundry tab (not a stale relay or some intermediate cache) that
 // answered.
 

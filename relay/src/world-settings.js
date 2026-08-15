@@ -1,10 +1,8 @@
-// World settings mirror (DESIGN §13.2). The module owns the values (Foundry
-// "Configure Settings"), snapshots them in `hello`, and re-sends on change via
-// the `settings.sync` notification. The relay is the ENFORCEMENT point - the
-// module UI is just paint - so gate logic reads from here, never the bridge.
+// §13.2 settings mirror; fed by hello + settings.sync.
+// Relay enforces; gate logic reads here, never the bridge.
 
 const DEFAULTS = {
-  mode: 'assistant',            /* assistant | cogm | custom */
+  mode: 'assistant', /* assistant | cogm | custom */
   multitasking: false,
   chainOffers: false,
   chainOfferThreshold: 4,
@@ -13,7 +11,7 @@ const DEFAULTS = {
   mirrorPath: '',
   mirrorContextualSort: false,
 };
-const CHAIN_HARD_CAP = 40;      /* §13.1 ceiling on chainMaxLength */
+const CHAIN_HARD_CAP = 40; /* §13.1 ceiling on chainMaxLength */
 
 export class WorldSettings {
   constructor({ dispatcher, audit }) {

@@ -21,7 +21,7 @@ import { handleDamage } from './handlers/damage.js';
 import { handleLootPending, handleLootRestore } from './handlers/loot.js';
 
 const MODULE_ID = 'foundry-bridge';
-const MODULE_VERSION = '0.8.1';
+const MODULE_VERSION = '0.8.2';
 const CHAT_MACRO_NAME = 'Open Claude Code Chat';
 
 let client = null;
@@ -36,7 +36,7 @@ const statusSubs = new Set();
 // DESIGN §9 confirmation gate: the chat box registers here to render
 // claude.confirm cards and send the human's decision back.
 const confirmSubs = new Set();
-// §13.3 Chain Mode: grant/gate/end progress events for the box.
+// §13.3 chain grant/gate/end events for the box.
 const chainSubs = new Set();
 
 const HANDLERS = {
@@ -75,7 +75,7 @@ Hooks.once('init', () => {
     default: 'ws://127.0.0.1:7878',
   });
 
-  // §13.1 AAGM-C settings: hidden world settings + the one sanctioned submenu.
+  // §13.1 hidden world settings + sanctioned submenu.
   registerModeSettings();
   game.settings.registerMenu(MODULE_ID, 'aagmSettings', {
     name: 'FOUNDRY_BRIDGE.SETTINGS.MenuName',

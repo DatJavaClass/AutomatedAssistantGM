@@ -16,7 +16,7 @@
 A localhost bridge between a Forge-hosted **Foundry VTT v12** world (Tested on Pathfinder 1e, should work on other systems as of 7/18/26) and **Claude** (Code or Chat). Two pieces:
 
 - **`relay/`** - a Node process on your machine. Runs the WebSocket server (talks to the Foundry module) and the MCP server (talks to Claude) in one process. Localhost-only.
-- **`module/`** - the `foundry-bridge` module (v0.7.0) running in the GM's browser tab. Opens a WebSocket out to the relay.
+- **`module/`** - the `foundry-bridge` module (v0.8.2) running in the GM's browser tab. Opens a WebSocket out to the relay.
 
 Claude reaches Foundry **only** through the relay, and every write passes a confirmation gate.
 
@@ -132,6 +132,9 @@ The bridge is extensible, and the four plug-ins below are the proof: each one is
 # Change Log
 
 What changed and when. Newest first, no archaeology required.
+
+**0.8.2 - Minor Refactor (2026-08-15)**
+- Comment diet across the module and relay: shorter, flusher, and every stray em dash is gone, including the one hiding in the confirm card header. No behavior changes.
 
 **0.8.1 (2026-08-13)**
 - Hotfix: the settings form's Save button was performing a full native browser submit, reloading all of Foundry and saving nothing. It now saves your settings instead of your patience.

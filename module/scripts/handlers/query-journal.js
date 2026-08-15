@@ -1,4 +1,4 @@
-// query.journal handler — read a journal entry or specific page. Supports
+// query.journal handler - read a journal entry or specific page. Supports
 // lookups by id or name. Returns page content (HTML for text pages, src for
 // image / pdf / video pages).
 

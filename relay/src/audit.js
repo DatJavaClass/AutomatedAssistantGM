@@ -1,6 +1,6 @@
 // Phase 1: stdout-only audit shim. Every command that crosses the relay is
 // logged here for protocol debugging. Phase 3 will add a journal-page sink for
-// the AAGM channel — at that point this becomes a wrapper around both.
+// the AAGM channel - at that point this becomes a wrapper around both.
 
 export class Audit {
   constructor({ stdout = true } = {}) {

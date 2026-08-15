@@ -265,8 +265,7 @@ function registerTools(server, dispatcher, audit, promptQueue, worldSettings, ch
       }
       const opId = randomUUID();
       const level = effective === 'destructive' ? 'double' : 'single';
-      // Chain death on escalation (§13.3): a destructive gate mid-chain ends
-      // the batch; only the user authorizes destructive changes.
+      // §13.3: destructive mid-chain kills the batch.
       if (chainId && level === 'double') chains.kill('escalated-destructive');
       const riding = !!chainId && level === 'single' && chains.consume(chainId, summary.trim());
       if (riding) {
@@ -322,7 +321,7 @@ function registerTools(server, dispatcher, audit, promptQueue, worldSettings, ch
       audit.log('damage.plan', { n: targets.length, amount, lethal: !!plan.lethal });
       const level = plan.lethal ? 'double' : 'single';
       const opId = randomUUID();
-      // Lethal mid-chain = escalation: chain dies, manual double confirm runs.
+      // Lethal mid-chain kills it; double-confirm runs.
       if (chainId && plan.lethal) chains.kill('escalated-lethal');
       const riding = !!chainId && !plan.lethal && chains.consume(chainId, summary.trim());
       if (riding) {

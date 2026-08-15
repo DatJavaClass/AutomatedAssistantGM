@@ -1,6 +1,5 @@
-// Shared §13.1 settings definitions - registered by bridge.js, edited by the
-// settings menu, snapshotted into `hello` / settings.sync for the relay.
-// Preset names are locked (CLAUDE.md #9); the relay enforces, this is paint.
+// §13.1 settings defs, shared bridge/menu/relay.
+// Preset names locked (CLAUDE.md #9); relay enforces.
 
 const MODULE_ID = 'foundry-bridge';
 
@@ -9,7 +8,7 @@ export const SETTING_KEYS = [
   'mirrorEnabled', 'mirrorPath', 'mirrorContextualSort',
 ];
 
-/* Assistant/Co-GM bundle values; Custom leaves stored values untouched. */
+/* Custom leaves stored values untouched */
 export const PRESETS = {
   assistant: { multitasking: false, chainOffers: false },
   cogm:      { multitasking: true,  chainOffers: true  },
@@ -26,7 +25,7 @@ const DEFS = {
   mirrorContextualSort: { type: Boolean, default: false },
 };
 
-// config:false - the submenu form is the only editing surface.
+// config:false; submenu is the only editor.
 export function registerModeSettings() {
   for (const [key, def] of Object.entries(DEFS)) {
     game.settings.register(MODULE_ID, key, {

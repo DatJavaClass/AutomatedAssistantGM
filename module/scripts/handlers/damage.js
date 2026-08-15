@@ -1,4 +1,4 @@
-// damage handler — the constrained damage primitive. Every application routes
+// damage handler - the constrained damage primitive. Every application routes
 // through the DESIGN §9 confirmation gate at the relay; a lethal outcome
 // (any target landing below 1 HP) escalates the gate to a double confirm
 // (DatJavaClass 2026-08-09; replaces the old absolute ≥1 HP hard floor).
@@ -8,11 +8,11 @@
 //                  confirm tier from `lethal`.
 //   commit:true  → recomputes on fresh data and applies ATOMICALLY. If
 //                  lethality appears that the gate did not approve
-//                  (allowLethal:false), nothing is written — the relay
+//                  (allowLethal:false), nothing is written - the relay
 //                  re-gates at the double-confirm tier. No partial writes.
 //
 // Damage hits temp HP first, then value. This manipulates state; it does not
-// adjudicate DR/resistances (DESIGN §12) — the caller passes the final amount.
+// adjudicate DR/resistances (DESIGN §12) - the caller passes the final amount.
 
 async function resolveTarget(ref) {
   const s = String(ref ?? '').trim();

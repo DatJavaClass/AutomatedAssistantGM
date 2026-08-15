@@ -1,4 +1,4 @@
-// query.scene handler — scene metadata + lightweight token list. Defaults to
+// query.scene handler - scene metadata + lightweight token list. Defaults to
 // the active scene if no sceneId is given.
 
 export async function handleQueryScene(params) {

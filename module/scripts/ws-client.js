@@ -40,7 +40,7 @@ export class WsClient {
 
   send(message) {
     if (!this.isOpen()) {
-      console.warn(`[foundry-bridge] cannot send — socket not open. Dropping ${message?.method || 'message'}.`);
+      console.warn(`[foundry-bridge] cannot send - socket not open. Dropping ${message?.method || 'message'}.`);
       return false;
     }
     try {

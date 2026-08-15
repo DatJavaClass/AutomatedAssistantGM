@@ -1,6 +1,5 @@
-// §13.1 settings form - the ONE sanctioned Application class in the module
-// (CLAUDE.md #10 scoped relaxation, DatJavaClass 2026-08-13). No .hbs file:
-// HTML is built here so the module still ships no templates directory.
+// §13.1 form; the ONE sanctioned Application class (CLAUDE.md #10).
+// No .hbs; inline HTML keeps templates/ unshipped.
 
 import { PRESETS, SETTING_KEYS, settingsSnapshot } from './settings-def.js';
 
@@ -17,9 +16,8 @@ export class AagmSettingsMenu extends FormApplication {
     });
   }
 
-  // Template MUST be trimmed: a leading newline makes jQuery parse
-  // [textNode, form], core never finds the form, Save does a NATIVE
-  // browser submit and reloads all of Foundry (0.8.0 bug).
+  // MUST stay trimmed: leading newline = jQuery [textNode, form],
+  // core misses the form, Save native-submits Foundry away (0.8.0 bug).
   async _renderInner() {
     const s = settingsSnapshot();
     const dis = s.mode !== 'custom' ? 'disabled' : '';
@@ -58,10 +56,10 @@ export class AagmSettingsMenu extends FormApplication {
 
   activateListeners(html) {
     super.activateListeners(html);
-    /* Seatbelt: if core missed the form, bind submit ourselves. */
+    /* Seatbelt: bind submit if core missed the form */
     const form = html[0] instanceof HTMLFormElement ? html[0] : (html.find('form')[0] || html.closest('form')[0]);
     if (form && form.onsubmit == null) { this.form = form; form.onsubmit = this._onSubmit.bind(this); }
-    // Mode radios lock/unlock the option fields live; Mirror stays open.
+    // Radios lock/unlock options live; Mirror stays open.
     html.find('input[name="mode"]').on('change', (ev) => {
       const mode = ev.currentTarget.value, custom = mode === 'custom';
       html.find('[data-aagm="opts"] input').prop('disabled', !custom);
