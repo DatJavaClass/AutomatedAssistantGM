@@ -3,9 +3,9 @@
 
 # AAGM-C: Automated Assistant Game Master - Claude
 
-*Foundry ↔ Claude bridge. Formerly plain "AAGM". The -C marks the Claude member of the family, with an OpenAI sibling (AAGM-O) in development.*
+*Foundry ↔ Claude bridge. Formerly plain "AAGM". The -C marks the Claude member of the family, with an OpenAI sibling, [AAGM-O](../../tree/aagm-o), available on its own branch.*
 
-**Jump to:** [Installation](#installation) · [Setup](#a-setup-one-time) · [Using it](#b-using-it-once-deployed) · [Troubleshooting](#troubleshooting-quick-hits) · [The Plug-in API](#the-plug-in-api) · [License](#license)
+**Jump to:** [Installation](#installation) · [Setup](#a-setup-one-time) · [Using it](#b-using-it-once-deployed) · [Troubleshooting](#troubleshooting-quick-hits) · [AAGM-O](#aagm-o-the-openai-sibling) · [The Plug-in API](#the-plug-in-api) · [License](#license)
 
 **Plug-ins:** [Item Forge](#claude-item-forge-plug-in-macro) · [Foe Forge](#claude-foe-forge-plug-in-macro) · [Link ReForge](#claude-link-reforge-plug-in-macro) · [Total Actor Backup](#claude-total-actor-backup-plug-in-macro)
 
@@ -121,6 +121,23 @@ Confirmation gate on all writes · double-confirm on deletes and lethal outcomes
 
 ---
 
+## AAGM-O: The OpenAI sibling
+
+AAGM-O is live on its own branch. It connects Foundry to Codex or ChatGPT desktop through a localhost-only MCP relay. The model client owns authentication. The relay owns safety. Foundry never holds an OpenAI API key.
+
+Two branches. One safety boundary.
+
+AAGM-O keeps the confirmation gates, Chain Mode, Loot Watchdog, Macro Mirror, single-listener lock, and serialized write lane. It is a sibling build, not a plug-in and not part of the Plug-in API.
+
+- **Source and full documentation:** [`aagm-o` branch](../../tree/aagm-o)
+- **Version:** 0.2.0
+- **Test target:** Foundry 12.343, Pathfinder 1e 11.11, Node.js 22+
+- **Clients:** Codex CLI, Codex IDE, and ChatGPT desktop
+
+Installation, configuration, listener instructions, the MCP tool list, and runtime acceptance steps live in the [AAGM-O README](../../tree/aagm-o#readme).
+
+---
+
 ## The Plug-in API
 
 The bridge is extensible, and the four plug-ins below are the proof: each one is just a world macro serving as an endpoint behind the gated eval - scope object in, `{ ok }` / `{ ok:false, error }` out, bare run as a diagnostic. The alpha contract is written up in [`Docs/PLUGIN_API_ALPHA.md`](Docs/PLUGIN_API_ALPHA.md); build your own and it rides the same Approve/Deny gate as everything else.
@@ -140,7 +157,7 @@ What changed and when. Newest first, no archaeology required.
 - Hotfix: the settings form's Save button was performing a full native browser submit, reloading all of Foundry and saving nothing. It now saves your settings instead of your patience.
 
 **0.8.0 - The AAGM-C Update (2026-08-13)**
-- AAGM is now **AAGM-C: Automated Assistant Game Master - Claude**. Same bridge, clearer name, and an OpenAI sibling (AAGM-O) is in development.
+- AAGM is now **AAGM-C: Automated Assistant Game Master - Claude**. Same bridge, clearer name, and an OpenAI sibling, [AAGM-O](../../tree/aagm-o), is available on its own branch.
 - A real settings menu at *Configure Settings → AAGM-C Settings*. Three presets: Assistant confirms everything, Co-GM trusts you, Custom hands you the switches.
 - **Chain Mode.** Ten same-shaped writes no longer cost ten Approve clicks, one approval covers the declared batch. Anything destructive kills the chain on the spot.
 - **Macro Mirror.** "Claude, back up all the macros" now means exactly that. Old versions rotate to `.bkp`, the mirror never deletes.
