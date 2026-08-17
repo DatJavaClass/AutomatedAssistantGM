@@ -1,0 +1,29 @@
+{
+  "id": "aagm-o",
+  "title": "AAGM-O: Automated Assistant Game Master - OpenAI",
+  "description": "Localhost-only bridge connecting a Foundry VTT GM client to Codex or the ChatGPT desktop app through MCP, with relay-enforced confirmations, modes, Chain Mode, Loot Watchdog, and Macro Mirror.",
+  "version": "0.2.0",
+  "compatibility": {
+    "minimum": "12",
+    "verified": "12.343",
+    "maximum": "12"
+  },
+  "esmodules": [
+    "scripts/bridge.js"
+  ],
+  "languages": [
+    { "lang": "en", "name": "English", "path": "lang/en.json" }
+  ],
+  "relationships": {
+    "systems": [
+      {
+        "id": "pf1",
+        "type": "system",
+        "compatibility": {
+          "minimum": "11.11",
+          "verified": "11.11"
+        }
+      }
+    ]
+  }
+}

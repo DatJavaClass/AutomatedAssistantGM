@@ -1,0 +1,30 @@
+## Installed dependencies
+node_modules/
+
+## Relay runtime state
+.loop-stop
+
+## Logs
+*.log
+npm-debug.log*
+
+## Temporary files
+*.tmp
+*.tmp.*
+
+## Environment secrets
+.env
+.env.*
+
+## Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+## Editor folders
+.vscode/
+.idea/
+
+## Local agent state
+AGENTS.md
+.codex/

@@ -1,0 +1,17 @@
+{
+  "_comment": "Key capability sets by Foundry user ID.",
+  "ws": {
+    "host": "127.0.0.1",
+    "port": 7888
+  },
+  "mcp": {
+    "host": "127.0.0.1",
+    "port": 7889
+  },
+  "users": {
+    "<YOUR_GM_USER_ID>": {
+      "capabilitySet": "gm",
+      "userName": "Your GM name"
+    }
+  }
+}

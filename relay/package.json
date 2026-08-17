@@ -1,0 +1,20 @@
+{
+  "name": "aagm-o-relay",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Local relay connecting the AAGM-O Foundry module to Codex and ChatGPT desktop through Streamable HTTP MCP.",
+  "main": "index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.0",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  }
+}
