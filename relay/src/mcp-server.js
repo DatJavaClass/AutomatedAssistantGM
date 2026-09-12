@@ -29,7 +29,7 @@ export async function startMcpServer({ config, dispatcher, audit, promptQueue, w
   // a transport". Per-request server + transport is the stateless pattern and
   // costs nothing here (registerTools is just closures + zod schemas).
   const makeServer = () => {
-    const s = new McpServer({ name: 'foundry-bridge-relay', version: '0.8.0' });
+    const s = new McpServer({ name: 'foundry-bridge-relay', version: '0.9.0' });
     registerTools(s, dispatcher, audit, promptQueue, worldSettings, chains, tabs);
     return s;
   };
