@@ -65,10 +65,12 @@ async function chatBoxMain() {
       .ccc-status { font-size:12px; padding:5px 8px; border-radius:3px; border:1px solid #00ffcc; }
       .ccc-status.ready { color:#00ffcc; border-color:#00ffcc; }
       .ccc-status.warn  { color:#ffaa00; border-color:#ffaa00; }
-      .ccc-tabs { display:flex; gap:4px; margin-bottom:-8px; }
-      .ccc-tab { flex:0 1 auto; min-width:0; max-width:150px; display:flex; align-items:center; gap:6px;
-                 padding:4px 8px; background:#222; border:1px solid #444; border-bottom:none;
-                 border-radius:4px 4px 0 0; color:#bbb; cursor:pointer; font-size:12px; }
+      .ccc-tabs { display:flex; align-items:flex-end; gap:4px; margin-bottom:-8px; }
+      /* width/height/line-height explicit: Foundry gives every button width:100% */
+      .ccc-tab { width:auto; height:auto; line-height:1.2; flex:0 1 auto; min-width:0; max-width:150px;
+                 display:flex; align-items:center; gap:6px; padding:4px 8px; background:#222;
+                 border:1px solid #444; border-bottom:none; border-radius:4px 4px 0 0; color:#bbb;
+                 cursor:pointer; font-size:12px; }
       .ccc-tab::before { content:''; width:7px; height:7px; border-radius:50%; background:#555; flex:none; }
       .ccc-tab.ccc-active { background:#2a2a2a; border-color:#00ffcc; color:#e0e0e0; }
       .ccc-tab.ccc-working::before { background:#00ffcc; }
@@ -76,11 +78,12 @@ async function chatBoxMain() {
       .ccc-tab.ccc-gated { border-color:#ffaa00; animation:ccc-pulse 1s ease-in-out infinite; }
       .ccc-tab.ccc-gated::before { background:#ffaa00; }
       @keyframes ccc-pulse { 0%,100% { background:#241f12; } 50% { background:#5a4410; } }
-      .ccc-tab-t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .ccc-tab-t { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .ccc-tab-x { opacity:0.6; padding:0 2px; flex:none; }
       .ccc-tab-x:hover { opacity:1; color:#ff6666; }
-      .ccc-tab-add { flex:none; padding:4px 9px; background:#222; border:1px solid #444; border-bottom:none;
-                     border-radius:4px 4px 0 0; color:#00ffcc; cursor:pointer; font-weight:600; }
+      .ccc-tab-add { width:auto; height:auto; line-height:1.2; flex:none; padding:4px 9px; background:#222;
+                     border:1px solid #444; border-bottom:none; border-radius:4px 4px 0 0; color:#00ffcc;
+                     cursor:pointer; font-weight:600; }
       .ccc-tab-add:disabled { opacity:0.35; cursor:default; }
       .ccc-log { height:320px; width:100%; box-sizing:border-box; overflow-y:auto;
                  background:#141414; border:1px solid #333; border-radius:4px; padding:8px;
