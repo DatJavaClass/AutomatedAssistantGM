@@ -85,17 +85,17 @@ Add `--scope user` if you want the tools available from any directory.
 - **Read:** `foundry_ping`, `foundry_query_actor`, `foundry_query_scene`, `foundry_query_macro`, `foundry_query_journal`, `foundry_query_user`, `foundry_tail_logs`.
 - **Eval:** `foundry_eval` runs JS in the GM client. Reads run freely; mutating/destructive code is reclassified at the relay and routed through the confirmation gate. DB-backing journals are hard-refused.
 - **Damage:** `foundry_apply_damage` previews before→after on live HP and picks the gate tier from the outcome: everyone stays at 1+ HP is a single confirm, anything landing below 1 HP escalates to a **double** confirm. Healing or setting HP directly is an ordinary gated `foundry_eval` write.
-- **Chat channel:** `foundry_get_prompts` / `foundry_send_reply`.
+- **Chat channel:** `foundry_get_prompts` / `foundry_send_reply`. Tab aware since 0.9.0: every prompt carries a `tabId`, every reply echoes it.
 - **Loot rescue:** `foundry_loot_pending` / `foundry_restore_loot` (see the Claude Loot Watchdog below).
 - **Chain Mode:** `foundry_chain_offer` - one approval covering a declared batch of same-shaped writes (Co-GM/Custom modes only; see the Change Log).
 
 ### Two GUI surfaces (auto-created macros in Foundry)
 Both appear in your macro directory once the bridge connects:
-- **"Open Claude Code Chat"** - the in-Foundry chat box. To use it: in Claude Code run a tight loop that calls `foundry_get_prompts` (it long-polls ≤25s) and answers with `foundry_send_reply`, e.g. `/loop 2s` instructed to call `foundry_get_prompts` back-to-back. Open the macro: it shows "Ready to chat" once the loop polls; type → Claude answers in the box. Write requests render an **Approve/Deny** card (deletes need a **double** confirm).
+- **"Open Claude Code Chat"** - the in-Foundry chat box. To use it: in Claude Code run a tight loop that calls `foundry_get_prompts` (it long-polls ≤25s) and answers with `foundry_send_reply`, e.g. `/loop 2s` instructed to call `foundry_get_prompts` back-to-back. Open the macro: it shows "Ready to chat" once the loop polls; type → Claude answers in the box. Write requests render an **Approve/Deny** card (deletes need a **double** confirm). In Co-GM Mode the box has **tabs**: one tab is one task, up to five, each served by its own background agent. Close a tab (the x, or type `/close` in it) and its agent stops.
 - **"Claude Loot Watchdog"** - run it to ARM; it records any loot that vanishes mid-transfer from an Item Pile, and the loop auto-restores exactly what was recorded (recorded item, recorded quantity, recorded recipient, nothing else). Run it again to disarm.
 
 ### Pick your mode
-*Configure Settings → AAGM-C Settings* (GM only). **Assistant Mode** is the default: every change individually confirmed. **Co-GM Mode** trusts you with multitasking and Chain Mode offers. **Custom** unlocks the individual switches, including the local **Macro Mirror** (that one is available in every mode).
+*Configure Settings → AAGM-C Settings* (GM only). **Assistant Mode** is the default: every change individually confirmed. **Co-GM Mode** trusts you with multitasking (the tab bar) and Chain Mode offers. **Custom** unlocks the individual switches, including the local **Macro Mirror** (that one is available in every mode).
 
 ### Stop
 - End the chat loop: type `/exit` in the box, or `touch relay/.loop-stop`.
@@ -149,6 +149,15 @@ The bridge is extensible, and the four plug-ins below are the proof: each one is
 # Change Log
 
 What changed and when. Newest first, no archaeology required.
+
+**0.9.2 - Tabs (2026-09-12)**
+- **Tabs.** In Co-GM Mode the chat box grows a tab bar. One tab is one task, all on the same listener: "build out the goblin lair" in one tab, "find every cursed item on the map" in the next, and Claude serves each tab with its own background agent while the loop keeps polling. Five tabs max. The box is only so big.
+- The relay owns the tab table, so a Foundry reload hands every tab back with its transcript, and a gate card that was waiting comes back with it.
+- Approve/Deny cards land in the tab that asked, and that tab pulses until you decide. Two tabs pulsing at once is normal. Loud, but normal.
+- Close a tab (the x, or type `/close` in it) and its agent stops. That one took two tries: the first cut handed the loop a side list of closed tabs, and the loop ignored it. Now the close arrives as a prompt it cannot miss.
+- Assistant Mode keeps the single box it always had.
+- 0.9.0 and 0.9.1 were this same feature landing in parts. 0.9.1 exists because Foundry gives every button `width:100%`, and the tab bar found out.
+- Under the hood: `tabId` on prompts, replies, gate cards, and chain offers; `foundry_send_reply` gains `tabId` and `final`; `foundry_get_prompts` returns the live tab table.
 
 **0.8.2 - Minor Refactor (2026-08-15)**
 - Comment diet across the module and relay: shorter, flusher, and every stray em dash is gone, including the one hiding in the confirm card header. No behavior changes.
