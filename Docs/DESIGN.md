@@ -630,7 +630,8 @@ box) means the default tab `t-main`.
 | `claude.prompt` `{promptId,text,tabId}` | module → relay | `tabId` added. Missing = first tab (tabs off). |
 | `claude.reply` `{promptId?,text,tabId}` | relay → module | Rendered in that tab. Closed tab: rendered in the first open tab prefixed `[title]` (the relay remembers closed tabs' titles). |
 | `claude.tabs` `{tabs:[{id,title,state,transcript}]}` | relay → module | Full tab table. Sent on `hello` and on every change (new tab, state flip, close). |
-| `claude.tab.close` `{tabId}` | module → relay | GM closed a tab. Relay drops it; the loop learns via `closedTabs` on its next poll and stops that subagent. |
+| `claude.tab.close` `{tabId}` | module → relay | GM closed a tab. Relay drops it; the loop learns via `closedTabs` on its next poll and stops that subagent. A tab that never sent a prompt is box-local and closes silently. |
+| `claude.chain` | relay → module | Gains `tabId` (the offering tab) so the chain card and its end line render there. |
 | `claude.confirm` | relay → module | Gains `tabId`; box shows the card in that tab, whose state flips to `gated` until the decision. Live cards are re-sent on `hello`, so a reload mid-gate gets its card back instead of timing out. |
 
 Tool deltas: `foundry_get_prompts` returns `tabId` per prompt plus
@@ -659,18 +660,25 @@ end the whole loop, and clear the tab table.
 
 ### 14.4 Box UI
 
-Tab bar above the log: up to 5 tabs plus "+", each with a close control.
-The active tab shows its transcript and owns the input. Per-tab state
-styling: `working` = quiet dot, `gated` = pulse, `done` = plain. CSS classes
-`ccc-tab*`; strings under `FOUNDRY_BRIDGE.CHAT.TAB.*`. With `multitasking`
-off the bar is hidden and the box is unchanged.
+Tab bar above the logs: up to 5 tabs plus "+", each with a close control.
+One `.ccc-log` per tab; only the active tab's log is shown and it owns the
+input. Per-tab state styling: `working` = cyan dot, `gated` = amber pulse,
+`done` = green dot. CSS classes `ccc-tab*`; strings `FOUNDRY_BRIDGE.CHAT.Tab*`.
+A new tab is box-local ("New tab") until its first prompt names it; the
+relay's `claude.tabs` then owns title and state. Gate cards dedupe by opId
+(hello re-sends). With `multitasking` off the bar is hidden and the box
+runs as the single tab `t-main`, which still rebuilds from the relay on
+reload. The box reads `multitasking` when it opens: change the mode, reopen
+the box.
 
 ### 14.5 Build order
 
 1. Relay: tab table, `tabId` on prompt/reply/confirm, `claude.tabs`,
    `closedTabs`, tool param deltas. Throwaway harness green before step 2.
    **Built 2026-09-12** (`relay/src/tabs.js` + deltas; 12/12 harness checks).
-2. Box: tab bar, rebuild from `hello`, flash, cap, close.
+2. Box: tab bar, rebuild from `hello`, flash, cap, close. **Built
+   2026-09-12** (`chat-macro.js`; bridge api gains `closeTab`, `onTabs`,
+   `tabId` on `sendPrompt`; jsdom harness 13/13).
 3. Skill: dispatcher loop, subagent per tab, closed-tab handling.
 4. Stamp 0.9.0, rebuild zip, Dropbox in-place byte write (never copy-replace).
 

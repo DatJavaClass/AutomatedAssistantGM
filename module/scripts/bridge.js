@@ -38,6 +38,8 @@ const statusSubs = new Set();
 const confirmSubs = new Set();
 // §13.3 chain grant/gate/end events for the box.
 const chainSubs = new Set();
+// §14 tab table pushes (claude.tabs) for the box.
+const tabsSubs = new Set();
 
 const HANDLERS = {
   'ping': handlePing,
@@ -108,11 +110,14 @@ Hooks.once('ready', () => {
         if (game.settings.get(MODULE_ID, 'enabled')) startClient();
       },
       isConnected: () => !!client && client.isOpen(),
-      sendPrompt: (text) => {
+      sendPrompt: (text, tabId) => {
         if (!client || !client.isOpen()) return null;
         const promptId = `p-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const ok = client.send({ jsonrpc: '2.0', method: 'claude.prompt', params: { promptId, text } });
+        const ok = client.send({ jsonrpc: '2.0', method: 'claude.prompt', params: { promptId, text, tabId } });
         return ok ? promptId : null;
+      },
+      closeTab: (tabId) => {
+        if (client && client.isOpen()) client.send({ jsonrpc: '2.0', method: 'claude.tab.close', params: { tabId } });
       },
       requestStatus: () => {
         if (client && client.isOpen()) client.send({ jsonrpc: '2.0', method: 'claude.hello', params: {} });
@@ -121,6 +126,7 @@ Hooks.once('ready', () => {
       onStatus: (cb) => { statusSubs.add(cb); return () => statusSubs.delete(cb); },
       onConfirm: (cb) => { confirmSubs.add(cb); return () => confirmSubs.delete(cb); },
       onChain: (cb) => { chainSubs.add(cb); return () => chainSubs.delete(cb); },
+      onTabs: (cb) => { tabsSubs.add(cb); return () => tabsSubs.delete(cb); },
       sendConfirmResult: (opId, approved, reason) => {
         if (client && client.isOpen()) {
           client.send({ jsonrpc: '2.0', method: 'claude.confirm.result', params: { opId, approved: !!approved, reason } });
@@ -274,6 +280,12 @@ async function onMessage(msg) {
     if (msg.method === 'claude.chain') {
       for (const fn of chainSubs) {
         try { fn(msg.params || {}); } catch (err) { /* progress is best-effort */ }
+      }
+      return;
+    }
+    if (msg.method === 'claude.tabs') {
+      for (const fn of tabsSubs) {
+        try { fn(msg.params || {}); } catch (err) { /* table resync is best-effort */ }
       }
       return;
     }

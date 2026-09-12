@@ -16,6 +16,11 @@ async function chatBoxMain() {
   const STYLE_ID = 'ccc-claude-code-chat-theme';
   const LAYOUT_ID = 'ccc-claude-code-chat-layout';
   const L = (k) => game.i18n.localize('FOUNDRY_BRIDGE.CHAT.' + k);
+  // §14 tabs: bar shows only with multitasking on; one tab = one task.
+  const TABS_ON = !!game.settings.get(MODULE_ID, 'multitasking');
+  const TAB_MAX = 5; /* real estate; keeps the flash legible */
+  const TAB_TITLE_LEN = 24;
+  const MAIN_TAB = 't-main'; /* tabs off = this single tab */
 
   // Style loader, per Foundry JS/Stylesfolderhowto: prefer the "VTT Macro
   // Styles" journal, fall back to inline CSS if it can't be read.
@@ -60,9 +65,27 @@ async function chatBoxMain() {
       .ccc-status { font-size:12px; padding:5px 8px; border-radius:3px; border:1px solid #00ffcc; }
       .ccc-status.ready { color:#00ffcc; border-color:#00ffcc; }
       .ccc-status.warn  { color:#ffaa00; border-color:#ffaa00; }
+      .ccc-tabs { display:flex; gap:4px; margin-bottom:-8px; }
+      .ccc-tab { flex:0 1 auto; min-width:0; max-width:150px; display:flex; align-items:center; gap:6px;
+                 padding:4px 8px; background:#222; border:1px solid #444; border-bottom:none;
+                 border-radius:4px 4px 0 0; color:#bbb; cursor:pointer; font-size:12px; }
+      .ccc-tab::before { content:''; width:7px; height:7px; border-radius:50%; background:#555; flex:none; }
+      .ccc-tab.ccc-active { background:#2a2a2a; border-color:#00ffcc; color:#e0e0e0; }
+      .ccc-tab.ccc-working::before { background:#00ffcc; }
+      .ccc-tab.ccc-done::before { background:#3a7; }
+      .ccc-tab.ccc-gated { border-color:#ffaa00; animation:ccc-pulse 1s ease-in-out infinite; }
+      .ccc-tab.ccc-gated::before { background:#ffaa00; }
+      @keyframes ccc-pulse { 0%,100% { background:#241f12; } 50% { background:#5a4410; } }
+      .ccc-tab-t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .ccc-tab-x { opacity:0.6; padding:0 2px; flex:none; }
+      .ccc-tab-x:hover { opacity:1; color:#ff6666; }
+      .ccc-tab-add { flex:none; padding:4px 9px; background:#222; border:1px solid #444; border-bottom:none;
+                     border-radius:4px 4px 0 0; color:#00ffcc; cursor:pointer; font-weight:600; }
+      .ccc-tab-add:disabled { opacity:0.35; cursor:default; }
       .ccc-log { height:320px; width:100%; box-sizing:border-box; overflow-y:auto;
                  background:#141414; border:1px solid #333; border-radius:4px; padding:8px;
                  display:flex; flex-direction:column; gap:6px; }
+      .ccc-log[hidden] { display:none; }
       .ccc-msg { white-space:pre-wrap; word-break:break-word; padding:6px 8px;
                  border-radius:6px; font-size:13px; line-height:1.4; }
       .ccc-msg .ccc-who { display:block; font-size:11px; opacity:0.75; margin-bottom:2px; }
@@ -116,7 +139,8 @@ async function chatBoxMain() {
   const content = `
     <div class="forge-dialog-dark ccc-wrap" data-ccc="wrap">
       <div class="ccc-status warn" data-ccc="status">${L('StatusNoListener')}</div>
-      <div class="ccc-log" data-ccc="log"></div>
+      <div class="ccc-tabs" data-ccc="tabs"${TABS_ON ? '' : ' style="display:none"'}></div>
+      <div class="ccc-logs" data-ccc="logs"></div>
       <textarea class="ccc-input" data-ccc="input" placeholder="${L('Placeholder')}"></textarea>
       <button type="button" class="ccc-send" data-ccc="send">${L('Send')}</button>
     </div>`;
@@ -124,8 +148,85 @@ async function chatBoxMain() {
   let root = null;
   const $el = (k) => root?.querySelector(`[data-ccc="${k}"]`);
 
-  const addMsg = (role, text) => {
-    const log = $el('log');
+  // §14 tab table, box side. Relay owns truth; claude.tabs resyncs us.
+  const tabs = new Map(); /* id -> { id, title, state, log, sent } */
+  let activeId = null;
+  const newId = () => 't-' + Math.random().toString(16).slice(2, 10).padEnd(8, '0');
+  const logFor = (tabId) => (TABS_ON && tabs.get(tabId)?.log) || tabs.get(activeId)?.log || null;
+
+  const renderBar = () => {
+    const bar = $el('tabs');
+    if (!bar) return;
+    bar.textContent = '';
+    for (const t of tabs.values()) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'ccc-tab ccc-' + (t.state || 'idle') + (t.id === activeId ? ' ccc-active' : '');
+      b.dataset.tab = t.id;
+      const title = document.createElement('span');
+      title.className = 'ccc-tab-t';
+      title.textContent = t.title;
+      title.title = t.title;
+      b.appendChild(title);
+      const x = document.createElement('span');
+      x.className = 'ccc-tab-x';
+      x.dataset.close = t.id;
+      x.textContent = '×';
+      x.title = L('TabClose');
+      b.appendChild(x);
+      bar.appendChild(b);
+    }
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'ccc-tab-add';
+    add.dataset.ccc = 'tabadd';
+    add.textContent = '+';
+    add.title = L('TabAdd');
+    add.disabled = tabs.size >= TAB_MAX;
+    bar.appendChild(add);
+  };
+
+  const activate = (id) => {
+    if (!tabs.has(id)) return;
+    activeId = id;
+    for (const t of tabs.values()) t.log.hidden = t.id !== id;
+    renderBar();
+    const log = tabs.get(id).log;
+    log.scrollTop = log.scrollHeight;
+  };
+
+  const mintTab = (id, title, state) => {
+    const log = document.createElement('div');
+    log.className = 'ccc-log';
+    log.hidden = true;
+    $el('logs')?.appendChild(log);
+    const t = { id, title, state: state || 'idle', log, sent: false };
+    tabs.set(id, t);
+    return t;
+  };
+
+  const addTab = () => {
+    if (tabs.size >= TAB_MAX) return null;
+    const t = mintTab(newId(), L('TabNew'), 'idle');
+    activate(t.id);
+    setTimeout(() => $el('input')?.focus(), 0);
+    return t;
+  };
+
+  const closeTab = (id) => {
+    const t = tabs.get(id);
+    if (!t) return;
+    tabs.delete(id);
+    t.log.remove();
+    if (t.sent) { try { api.closeTab(id); } catch (e) {} } /* relay never saw a pristine tab */
+    if (activeId === id) {
+      const next = tabs.keys().next().value;
+      if (next) activate(next); else addTab();
+    } else renderBar();
+  };
+
+  const addMsg = (role, text, tabId) => {
+    const log = logFor(tabId);
     if (!log) return;
     const msg = document.createElement('div');
     msg.className = 'ccc-msg ccc-' + role;
@@ -142,6 +243,33 @@ async function chatBoxMain() {
     log.scrollTop = log.scrollHeight;
   };
 
+  // Relay table in: new ids rebuild from transcript (reload), known ids
+  // just take title/state, sent-but-missing ids were closed or reset.
+  const syncTabs = (list) => {
+    if (!Array.isArray(list)) return;
+    const seen = new Set();
+    for (const r of list) {
+      if (!r?.id || (!TABS_ON && r.id !== MAIN_TAB)) continue;
+      seen.add(r.id);
+      let t = tabs.get(r.id);
+      if (!t) {
+        t = mintTab(r.id, r.title || r.id, r.state);
+        for (const line of r.transcript || []) addMsg(line.role, line.text, r.id);
+      }
+      t.title = r.title || t.title;
+      t.state = r.state || 'idle';
+      t.sent = true;
+    }
+    for (const t of [...tabs.values()]) {
+      if (seen.has(t.id)) continue;
+      const pristine = !t.sent && !t.log.childElementCount;
+      if (t.sent || (pristine && seen.size)) { tabs.delete(t.id); t.log.remove(); }
+    }
+    if (!tabs.size) addTab();
+    else if (!tabs.has(activeId)) activate(tabs.keys().next().value);
+    else renderBar();
+  };
+
   const setStatus = (state) => {
     const bar = $el('status');
     if (!bar) return;
@@ -155,11 +283,14 @@ async function chatBoxMain() {
   // DESIGN §9 confirmation gate. Renders a card with the summary + the exact
   // code (eval) or HP preview (damage) and Approve/Deny. level "double"
   // (deletes) requires a distinct second approval. Decision → api.sendConfirmResult.
+  // §14: the card lands in its tab; the relay flips that tab to gated.
   const renderConfirm = (p) => {
-    const log = $el('log');
+    const log = logFor(p?.tabId);
     if (!log || !p || !p.opId) return;
+    if (log.querySelector(`[data-op="${p.opId}"]`)) return; /* hello re-sends live cards */
     const card = document.createElement('div');
     card.className = 'ccc-msg ccc-confirm' + (p.level === 'double' ? ' ccc-double' : '');
+    card.dataset.op = p.opId;
 
     const h = document.createElement('div');
     h.className = 'ccc-cf-h';
@@ -274,10 +405,14 @@ async function chatBoxMain() {
   const submit = () => {
     const ta = $el('input');
     const text = (ta?.value || '').trim();
-    if (!text) return;
-    const id = api.sendPrompt(text);
+    const t = tabs.get(activeId);
+    if (!text || !t) return;
+    const id = api.sendPrompt(text, t.id);
     if (!id) { addMsg('sys', L('StatusDisconnected')); setStatus('disconnected'); return; }
-    addMsg('user', text);
+    if (!t.sent) { t.title = text.slice(0, TAB_TITLE_LEN); t.state = 'working'; } /* relay will agree */
+    t.sent = true;
+    addMsg('user', text, t.id);
+    renderBar();
     ta.value = '';
     ta.focus();
   };
@@ -286,7 +421,7 @@ async function chatBoxMain() {
   // gate updates it, end freezes it. Cancel button rides the card while live.
   let chainCard = null;
   const onChain = (p) => {
-    const log = $el('log');
+    const log = logFor(p?.tabId);
     if (!log || !p) return;
     if (p.event === 'grant') {
       chainCard = document.createElement('div');
@@ -315,15 +450,16 @@ async function chatBoxMain() {
     } else if (p.event === 'end') {
       chainCard?.querySelector('button')?.remove();
       chainCard = null;
-      addMsg('sys', `${L('ChainEnded')} ${p.n}/${p.count} (${p.text || ''})`);
+      addMsg('sys', `${L('ChainEnded')} ${p.n}/${p.count} (${p.text || ''})`, p.tabId);
     }
   };
 
   // Subscribe to relay pushes once, before the dialog opens; tear down on close.
-  const unsubReply = api.onReply((p) => addMsg('claude', p?.text ?? ''));
+  const unsubReply = api.onReply((p) => addMsg('claude', p?.text ?? '', p?.tabId));
   const unsubStatus = api.onStatus((p) => setStatus(p?.state || 'no-listener'));
   const unsubConfirm = api.onConfirm((p) => renderConfirm(p || {}));
   const unsubChain = api.onChain ? api.onChain(onChain) : null;
+  const unsubTabs = api.onTabs ? api.onTabs((p) => syncTabs(p?.tabs)) : null;
   let poll = null;
   let wasConnected = true;
 
@@ -339,6 +475,15 @@ async function chatBoxMain() {
       ta?.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); submit(); }
       });
+      // Tab bar: one delegated listener; close beats select.
+      $el('tabs')?.addEventListener('click', (ev) => {
+        const x = ev.target.closest?.('[data-close]');
+        if (x) { ev.stopPropagation(); closeTab(x.dataset.close); return; }
+        if (ev.target.closest?.('[data-ccc="tabadd"]')) { addTab(); return; }
+        const b = ev.target.closest?.('[data-tab]');
+        if (b) activate(b.dataset.tab);
+      });
+      if (TABS_ON) addTab(); else activate(mintTab(MAIN_TAB, L('Title'), 'idle').id);
       // Whole box is the drop zone (forgiving aim); the input highlights as
       // the landing spot. Depth counter because child enter/leave pairs bubble.
       const wrap = $el('wrap');
@@ -349,7 +494,7 @@ async function chatBoxMain() {
       wrap?.addEventListener('dragover', (ev) => ev.preventDefault());
       wrap?.addEventListener('drop', (ev) => { undrop(); onDrop(ev); });
       setStatus(api.isConnected() ? 'no-listener' : 'disconnected');
-      api.requestStatus();
+      api.requestStatus(); /* relay answers with status + tab table + live cards */
       poll = setInterval(() => {
         const c = api.isConnected();
         if (!c) setStatus('disconnected');
@@ -363,6 +508,7 @@ async function chatBoxMain() {
       try { unsubStatus?.(); } catch (e) {}
       try { unsubConfirm?.(); } catch (e) {}
       try { unsubChain?.(); } catch (e) {}
+      try { unsubTabs?.(); } catch (e) {}
       if (poll) { clearInterval(poll); poll = null; }
     },
   }, { width: 560, resizable: false, classes: ['ccc-dialog'] });

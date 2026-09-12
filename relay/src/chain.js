@@ -36,9 +36,9 @@ export class ChainRegistry {
       this.audit.log('chain.declined', { chainId, reason: decision.reason });
       return { refused: true, reason: decision.reason };
     }
-    this.active = { chainId, count, used: 0, summary, expiresAt: Date.now() + TTL_MS };
-    this.audit.log('chain.grant', { chainId, count, summary });
-    this._notify({ event: 'grant', chainId, count, text: summary });
+    this.active = { chainId, count, used: 0, summary, expiresAt: Date.now() + TTL_MS, tabId };
+    this.audit.log('chain.grant', { chainId, count, summary, tabId });
+    this._notify({ event: 'grant', chainId, count, text: summary, tabId });
     return { chainId, count, expiresInSeconds: TTL_MS / 1000 };
   }
 
@@ -49,17 +49,17 @@ export class ChainRegistry {
     if (Date.now() > a.expiresAt) { this.kill('ttl-expired'); return false; }
     a.used++;
     this.audit.log('chain.gate', { chainId, n: a.used, of: a.count, summary: gateSummary });
-    this._notify({ event: 'gate', chainId, n: a.used, count: a.count, text: gateSummary });
+    this._notify({ event: 'gate', chainId, n: a.used, count: a.count, text: gateSummary, tabId: a.tabId });
     if (a.used >= a.count) this.kill('count-exhausted'); /* Nth gate still rides */
     return true;
   }
 
   kill(reason) {
     if (!this.active) return;
-    const { chainId, used, count } = this.active;
+    const { chainId, used, count, tabId } = this.active;
     this.active = null;
     this.audit.log('chain.end', { chainId, used, count, reason });
-    this._notify({ event: 'end', chainId, n: used, count, text: reason });
+    this._notify({ event: 'end', chainId, n: used, count, text: reason, tabId });
   }
 
   _notify(params) {
