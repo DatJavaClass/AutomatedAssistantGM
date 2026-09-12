@@ -10,12 +10,20 @@ const SWEEP_INTERVAL_MS = 10_000;
 const LONG_POLL_TIMEOUT_MS = 25_000;
 // Typed stop words (DESIGN §10 Phase 2).
 const TERMINATORS = new Set(['/exit', '/stop', '/quit']);
+const TAB_CLOSE = '/close'; /* §14: closes one tab, stops its agent */
 
 export class PromptQueue {
   constructor({ dispatcher, audit, stopFilePath, tabs }) {
     this.dispatcher = dispatcher;
     this.audit = audit;
     this.tabs = tabs; /* §14 tab table; prompts land in a tab */
+    // Box x, typed /close, or claude.tab.close: all end here as one prompt
+    // the loop handles in its normal per-prompt path (never missable).
+    if (tabs) tabs.onClose = (tabId) => {
+      this.queue.push({ promptId: `close-${tabId}-${Date.now()}`, text: TAB_CLOSE, tabId, close: true, ts: new Date().toISOString() });
+      this.audit.log('chat.close', { tabId });
+      this._wake();
+    };
     this.stopFilePath = stopFilePath;
     this.queue = [];
     this.terminate = false;
@@ -58,6 +66,10 @@ export class PromptQueue {
       this.audit.log('chat.terminate', { via: trimmed.toLowerCase() });
       this._broadcastStatus();
       this._wake();
+      return;
+    }
+    if (trimmed.toLowerCase() === TAB_CLOSE) {
+      if (this.tabs?.tabs.has(tabId)) this.tabs.close(tabId); /* onClose enqueues */
       return;
     }
     const tab = this.tabs?.prompt(tabId, text ?? '');

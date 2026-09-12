@@ -21,7 +21,7 @@ import { handleDamage } from './handlers/damage.js';
 import { handleLootPending, handleLootRestore } from './handlers/loot.js';
 
 const MODULE_ID = 'foundry-bridge';
-const MODULE_VERSION = '0.9.1';
+const MODULE_VERSION = '0.9.2';
 const CHAT_MACRO_NAME = 'Open Claude Code Chat';
 
 let client = null;
@@ -116,8 +116,11 @@ Hooks.once('ready', () => {
         const ok = client.send({ jsonrpc: '2.0', method: 'claude.prompt', params: { promptId, text, tabId } });
         return ok ? promptId : null;
       },
+      // §14: close rides the prompt path so the loop cannot miss it.
       closeTab: (tabId) => {
-        if (client && client.isOpen()) client.send({ jsonrpc: '2.0', method: 'claude.tab.close', params: { tabId } });
+        if (!client || !client.isOpen()) return;
+        const promptId = `close-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        client.send({ jsonrpc: '2.0', method: 'claude.prompt', params: { promptId, text: '/close', tabId } });
       },
       requestStatus: () => {
         if (client && client.isOpen()) client.send({ jsonrpc: '2.0', method: 'claude.hello', params: {} });

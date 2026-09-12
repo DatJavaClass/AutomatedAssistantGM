@@ -630,7 +630,7 @@ box) means the default tab `t-main`.
 | `claude.prompt` `{promptId,text,tabId}` | module → relay | `tabId` added. Missing = first tab (tabs off). |
 | `claude.reply` `{promptId?,text,tabId}` | relay → module | Rendered in that tab. Closed tab: rendered in the first open tab prefixed `[title]` (the relay remembers closed tabs' titles). |
 | `claude.tabs` `{tabs:[{id,title,state,transcript}]}` | relay → module | Full tab table. Sent on `hello` and on every change (new tab, state flip, close). |
-| `claude.tab.close` `{tabId}` | module → relay | GM closed a tab. Relay drops it; the loop learns via `closedTabs` on its next poll and stops that subagent. A tab that never sent a prompt is box-local and closes silently. |
+| `claude.prompt` `{text:"/close",tabId}` | module → relay | The x control and a typed `/close` both send this. The relay drops the tab and enqueues a `/close` prompt (`close:true`) for the loop, so the close arrives in the loop's normal per-prompt path and cannot be missed (the 0.9.0 live test proved a side list alone gets ignored). `closedTabs` repeats the ids. A tab that never sent a prompt is box-local and closes silently. `claude.tab.close` `{tabId}` still works and takes the same path. |
 | `claude.chain` | relay → module | Gains `tabId` (the offering tab) so the chain card and its end line render there. |
 | `claude.confirm` | relay → module | Gains `tabId`; box shows the card in that tab, whose state flips to `gated` until the decision. Live cards are re-sent on `hello`, so a reload mid-gate gets its card back instead of timing out. |
 
@@ -656,7 +656,9 @@ end the whole loop, and clear the tab table.
   closed)", chain fallbacks.
 - Chain Mode stays one chain at a time world-wide (§13.3). A second tab's
   offer is refused; that tab confirms manually. Never re-offer.
-- Tab close = stop that subagent, no further replies. `/exit` = stop all.
+- Tab close arrives as a `/close` prompt on that tab: TaskStop its subagent
+  (the loop records each agentId at spawn and loads TaskStop up front), no
+  further replies. `/exit` = stop all.
 
 ### 14.4 Box UI
 

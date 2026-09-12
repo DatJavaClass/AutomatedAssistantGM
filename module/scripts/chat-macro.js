@@ -410,6 +410,7 @@ async function chatBoxMain() {
     const text = (ta?.value || '').trim();
     const t = tabs.get(activeId);
     if (!text || !t) return;
+    if (TABS_ON && text.toLowerCase() === '/close') { ta.value = ''; closeTab(t.id); return; } /* same as the x */
     const id = api.sendPrompt(text, t.id);
     if (!id) { addMsg('sys', L('StatusDisconnected')); setStatus('disconnected'); return; }
     if (!t.sent) { t.title = text.slice(0, TAB_TITLE_LEN); t.state = 'working'; } /* relay will agree */

@@ -29,7 +29,7 @@ export async function startMcpServer({ config, dispatcher, audit, promptQueue, w
   // a transport". Per-request server + transport is the stateless pattern and
   // costs nothing here (registerTools is just closures + zod schemas).
   const makeServer = () => {
-    const s = new McpServer({ name: 'foundry-bridge-relay', version: '0.9.0' });
+    const s = new McpServer({ name: 'foundry-bridge-relay', version: '0.9.2' });
     registerTools(s, dispatcher, audit, promptQueue, worldSettings, chains, tabs);
     return s;
   };
@@ -400,8 +400,9 @@ function registerTools(server, dispatcher, audit, promptQueue, worldSettings, ch
     'timeout). Each prompt belongs to a tab (DESIGN §14: one tab = one task, all on this one ' +
     'listener). With settings.multitasking on, serve each tab with its own background subagent ' +
     'and keep polling; a prompt on an existing tab is a follow-up for that tab\'s agent. ' +
-    '`closedTabs` lists tabs DatJavaClass closed since the last poll: stop their agents, send ' +
-    'nothing more to them. `tabs` is the live table {id,title,state}. Because it ' +
+    'A prompt with text "/close" and close:true means DatJavaClass closed that tab (x or typed ' +
+    '/close): TaskStop its agent, drop it, send nothing more to that tab. `closedTabs` repeats ' +
+    'those ids as a list. `tabs` is the live table {id,title,state}. Because it ' +
     'blocks, call it back-to-back with NO added delay/sleep - do not pace it yourself; the ' +
     'server provides the pacing and pickup is near-instant. Calling this marks the box "Ready to ' +
     'chat". If `terminate` is true, STOP the loop immediately - do not reschedule, do not poll ' +

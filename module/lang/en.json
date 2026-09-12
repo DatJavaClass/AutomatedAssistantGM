@@ -58,7 +58,7 @@
   "FOUNDRY_BRIDGE.CHAT.ChainEnded": "⛓ Chain ended:",
   "FOUNDRY_BRIDGE.CHAT.TabNew": "New tab",
   "FOUNDRY_BRIDGE.CHAT.TabAdd": "New tab (5 max). One tab = one task; Claude works them side by side.",
-  "FOUNDRY_BRIDGE.CHAT.TabClose": "Close tab (stops its task)",
+  "FOUNDRY_BRIDGE.CHAT.TabClose": "Close tab (stops its task). Typing /close does the same.",
   "FOUNDRY_BRIDGE.LOOT.GmOnly": "Claude Loot Watchdog is GM-only.",
   "FOUNDRY_BRIDGE.LOOT.Armed": "Claude Loot Watchdog ARMED. Run the macro again to disarm.",
   "FOUNDRY_BRIDGE.LOOT.Disarmed": "Claude Loot Watchdog DISARMED.",

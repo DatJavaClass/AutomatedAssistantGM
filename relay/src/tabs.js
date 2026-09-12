@@ -13,6 +13,7 @@ export class TabTable {
     this.tabs = new Map(); /* id -> { id, title, state, transcript } */
     this.closedTitles = new Map(); /* id -> title; prefixes late replies */
     this.closed = []; /* drained by foundry_get_prompts */
+    this.onClose = null; /* prompt-queue enqueues the /close prompt */
     dispatcher.subscribe('claude.hello', () => this.broadcast());
     dispatcher.subscribe('claude.tab.close', (p) => this.close(p?.tabId));
   }
@@ -80,6 +81,7 @@ export class TabTable {
     this.closed.push(tabId);
     this.audit.log('tab.close', { tabId });
     this.broadcast();
+    this.onClose?.(tabId);
   }
 
   drainClosed() { return this.closed.splice(0, this.closed.length); }
