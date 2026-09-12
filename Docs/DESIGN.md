@@ -543,7 +543,7 @@ main loop, serially** - confirmations never interleave, and no two workers
 touch the same document. One conversational identity: subagents never speak
 in the box; the box instead carries a status line while work runs ("1
 background task: Cantankerous Skull"). When off (Assistant default), work is
-synchronous.
+synchronous. Surface and loop rules: §14 (tabs, spec 2026-09-12).
 
 ### 13.5 Macro Mirror
 
@@ -584,8 +584,95 @@ Suggested sequence, each step independently shippable and testable:
 3. **Macro Mirror** (backup / rotation / restore; contextual sorting last,
    behind its own flag).
 4. **Chain Mode** (manifest, grant, per-gate check, death conditions, audit).
-5. **Agentic multitasking** (subagent delegation rules in the `/aagm` skill,
-   serialized-write funnel, box status line).
+5. **Agentic multitasking + tabs** (§14): relay tab table, box tab bar,
+   subagent-per-tab rules in the `/aagm` skill.
+
+## 14. Tabs: the multitasking surface (spec 2026-09-12)
+
+Origin: ideas arrive mid-execution. While X runs, DatJavaClass wants to
+start Y and Z without waiting and without interleaving three tasks in one
+thread. Tabs give the box one thread per task on the SAME listener loop.
+This is the user-facing half of §13.4 agentic multitasking; the two ship
+together as one feature. Nothing here touches §9: every write still gates.
+
+### 14.1 Model
+
+- **Tab = task = thread.** One listener, one queue, one Claude context.
+  On Claude's side each tab is served by a background subagent; the loop
+  session itself is a thin dispatcher.
+- **Relay owns the tabs** (§13.2: module is surface, relay is law). Tab
+  table: `id`, `title`, `state` (`idle` / `working` / `gated` / `done`),
+  transcript (last 40 lines). The box is a view: on open or reload it sends
+  `claude.hello` and rebuilds from the relay's answer. A Foundry reload
+  loses nothing, and the subagents never notice (they live on the relay
+  machine). Tabs die on GM close or loop terminate, never on reload.
+- **No per-task classification** (DatJavaClass, 2026-09-12). Every duty is
+  Co-GM level: Co-GM executing assistant-grade tasks (find, open, move) and
+  Co-GM executing Co-GM-grade tasks (make, alter, delete). The `multitasking`
+  setting is the only switch: on (Co-GM, or Custom with the flag) shows the
+  tab bar and runs tabs concurrently; off (Assistant) is today's single box.
+- **Cap: 5 tabs**, enforced box-side (the "+" control disables). Real estate,
+  and it keeps the flash legible.
+- **Title** = the tab's first prompt, truncated to about 24 characters.
+- **Gates are per tab, arrival order.** Subagents call the gated tools
+  directly (DatJavaClass, 2026-09-12); the confirm card renders inside the
+  tab that asked and that tab flashes. Several tabs flashing at once is
+  expected behavior, not a fault.
+
+### 14.2 Protocol delta
+
+`tabId` rides every chat-channel message. Box mints ids (`t-<8 hex>`); the
+relay registers a tab on its first prompt. No `tabId` (tabs off, or an old
+box) means the default tab `t-main`.
+
+| Notification | Direction | Change |
+|---|---|---|
+| `claude.prompt` `{promptId,text,tabId}` | module → relay | `tabId` added. Missing = first tab (tabs off). |
+| `claude.reply` `{promptId?,text,tabId}` | relay → module | Rendered in that tab. Closed tab: rendered in the first open tab prefixed `[title]` (the relay remembers closed tabs' titles). |
+| `claude.tabs` `{tabs:[{id,title,state,transcript}]}` | relay → module | Full tab table. Sent on `hello` and on every change (new tab, state flip, close). |
+| `claude.tab.close` `{tabId}` | module → relay | GM closed a tab. Relay drops it; the loop learns via `closedTabs` on its next poll and stops that subagent. |
+| `claude.confirm` | relay → module | Gains `tabId`; box shows the card in that tab, whose state flips to `gated` until the decision. Live cards are re-sent on `hello`, so a reload mid-gate gets its card back instead of timing out. |
+
+Tool deltas: `foundry_get_prompts` returns `tabId` per prompt plus
+`tabs: [{id,title,state}]` and `closedTabs: [id]` (drained once).
+`foundry_send_reply` takes `tabId` (required when more than one tab is open)
+and `final` (false = progress line, the tab stays `working`; default true
+marks it `done`). `foundry_eval`, `foundry_apply_damage`, and
+`foundry_chain_offer` take optional `tabId` so the gate lands in its tab; no
+or unknown `tabId` = first tab. Terminators (`/exit` etc.) work from any tab,
+end the whole loop, and clear the tab table.
+
+### 14.3 Loop behavior (`/aagm` skill)
+
+- With tabs on, the loop session never does heavy work itself. Per prompt:
+  new tab = spawn a background subagent for it; existing tab = message the
+  tab's subagent (follow-ups keep the tab's context). Keep polling.
+- Subagents post their own replies with their `tabId` and call the gated
+  tools directly. This supersedes the §13.4 line "subagents never speak in
+  the box": with tabs, the tab IS the identity boundary, so a subagent
+  speaking in its own tab is the one voice the user expects there.
+- The loop session posts only housekeeping: "started", "stopped (tab
+  closed)", chain fallbacks.
+- Chain Mode stays one chain at a time world-wide (§13.3). A second tab's
+  offer is refused; that tab confirms manually. Never re-offer.
+- Tab close = stop that subagent, no further replies. `/exit` = stop all.
+
+### 14.4 Box UI
+
+Tab bar above the log: up to 5 tabs plus "+", each with a close control.
+The active tab shows its transcript and owns the input. Per-tab state
+styling: `working` = quiet dot, `gated` = pulse, `done` = plain. CSS classes
+`ccc-tab*`; strings under `FOUNDRY_BRIDGE.CHAT.TAB.*`. With `multitasking`
+off the bar is hidden and the box is unchanged.
+
+### 14.5 Build order
+
+1. Relay: tab table, `tabId` on prompt/reply/confirm, `claude.tabs`,
+   `closedTabs`, tool param deltas. Throwaway harness green before step 2.
+   **Built 2026-09-12** (`relay/src/tabs.js` + deltas; 12/12 harness checks).
+2. Box: tab bar, rebuild from `hello`, flash, cap, close.
+3. Skill: dispatcher loop, subagent per tab, closed-tab handling.
+4. Stamp 0.9.0, rebuild zip, Dropbox in-place byte write (never copy-replace).
 
 ---
 

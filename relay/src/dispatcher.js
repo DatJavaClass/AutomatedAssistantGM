@@ -13,30 +13,31 @@ export class Dispatcher {
     this.bridges = new Map();      // sessionId -> bridge record
     this.pending = new Map();      // requestId -> { resolve, reject, timer, sessionId, method }
     this.subscribers = new Map();  // notification method -> Set<fn>
-    this.confirmations = new Map(); // opId -> { resolve, timer }
+    this.confirmations = new Map(); // opId -> { resolve, timer, params, capabilitySet }
     // The chat box answers a confirmation request with this notification.
     this.subscribe('claude.confirm.result', (p) => this.resolveConfirmation(p || {}));
+    // Box reopened mid-gate (§14: reload loses nothing): re-send live cards.
+    this.subscribe('claude.hello', () => {
+      for (const c of this.confirmations.values()) this.notifyBridge({ capabilitySet: c.capabilitySet, method: 'claude.confirm', params: c.params });
+    });
   }
 
   // DESIGN §9 confirmation gate. Pushes the proposed write to the bridge (chat
   // box) and resolves with the human's decision, or auto-denies on timeout /
   // no bridge. The write is NOT executed here - the caller dispatches it only
   // after { approved:true }.
-  requestConfirmation({ capabilitySet, opId, kind, level, summary, code, preview, timeoutMs = 120_000 }) {
-    const sent = this.notifyBridge({
-      capabilitySet,
-      method: 'claude.confirm',
-      params: { opId, kind, level, summary, code, preview },
-    });
+  requestConfirmation({ capabilitySet, opId, kind, level, summary, code, preview, tabId, timeoutMs = 120_000 }) {
+    const params = { opId, kind, level, summary, code, preview, tabId };
+    const sent = this.notifyBridge({ capabilitySet, method: 'claude.confirm', params });
     if (!sent) return Promise.resolve({ approved: false, reason: 'no-bridge' });
-    this.audit.log('confirm.requested', { opId, kind, level });
+    this.audit.log('confirm.requested', { opId, kind, level, tabId });
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.confirmations.delete(opId);
         this.audit.log('confirm.timeout', { opId });
         resolve({ approved: false, reason: 'timeout' });
       }, timeoutMs);
-      this.confirmations.set(opId, { resolve, timer });
+      this.confirmations.set(opId, { resolve, timer, params, capabilitySet });
     });
   }
 

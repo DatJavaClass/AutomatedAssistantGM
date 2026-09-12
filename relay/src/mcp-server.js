@@ -16,7 +16,7 @@ import { classifyEval, SEVERITY } from './eval-guard.js';
 
 const PHASE1_CAPABILITY_SET = 'debug';
 
-export async function startMcpServer({ config, dispatcher, audit, promptQueue, worldSettings, chains }) {
+export async function startMcpServer({ config, dispatcher, audit, promptQueue, worldSettings, chains, tabs }) {
   const { host, port } = config.mcp;
   if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') {
     throw new Error(`refusing to bind MCP server to non-localhost address "${host}"`);
@@ -30,7 +30,7 @@ export async function startMcpServer({ config, dispatcher, audit, promptQueue, w
   // costs nothing here (registerTools is just closures + zod schemas).
   const makeServer = () => {
     const s = new McpServer({ name: 'foundry-bridge-relay', version: '0.8.0' });
-    registerTools(s, dispatcher, audit, promptQueue, worldSettings, chains);
+    registerTools(s, dispatcher, audit, promptQueue, worldSettings, chains, tabs);
     return s;
   };
 
@@ -111,10 +111,18 @@ async function handlePost(req, res, makeServer, audit) {
   });
 }
 
-function registerTools(server, dispatcher, audit, promptQueue, worldSettings, chains) {
+function registerTools(server, dispatcher, audit, promptQueue, worldSettings, chains, tabs) {
   const callBridge = (method, params) =>
     dispatcher.sendToBridge({ capabilitySet: PHASE1_CAPABILITY_SET, method, params });
   const asText = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
+  // §14: card lands in its tab, which flashes until decided.
+  const gate = async (tabId, opts) => {
+    const id = tabs.resolve(tabId);
+    tabs.gated(id, true);
+    try { return await dispatcher.requestConfirmation({ capabilitySet: PHASE1_CAPABILITY_SET, tabId: id, ...opts }); }
+    finally { tabs.gated(id, false); }
+  };
+  const TAB_PARAM = z.string().optional().describe('Tab this work belongs to (from foundry_get_prompts). The gate card renders in that tab. Omit = first tab.');
 
   server.tool(
     'foundry_ping',
@@ -195,7 +203,7 @@ function registerTools(server, dispatcher, audit, promptQueue, worldSettings, ch
           extra?.sendNotification?.({
             method: 'notifications/message',
             params: { level: mcpLevel, logger: 'foundry', data: entry },
-          });
+          })?.catch?.(() => {}); // rejects async when the client lacks the logging capability; unhandled = relay crash
         } catch { /* best-effort streaming */ }
       });
       try {
@@ -241,8 +249,9 @@ function registerTools(server, dispatcher, audit, promptQueue, worldSettings, ch
       awaitResult: z.boolean().optional().describe('Await a returned thenable before serializing (default true)'),
       captureConsole: z.boolean().optional().describe('Debug mode: also return everything the snippet logged (console.*) and any thrown error+stack as {console:[...],thrown}, and DO NOT fail the call on error - for debugging/variable-hunting. Stateless per call.'),
       chainId: z.string().optional().describe('Active Chain Mode grant id (from foundry_chain_offer). Single-auth writes belonging to the granted batch auto-approve; anything destructive kills the chain and confirms normally.'),
+      tabId: TAB_PARAM,
     },
-    async ({ code, intent, summary, awaitResult, captureConsole, chainId }) => {
+    async ({ code, intent, summary, awaitResult, captureConsole, chainId, tabId }) => {
       const verdict = classifyEval(code);
       const declared = intent === 'destructive' ? 'destructive' : intent === 'write' ? 'mutating' : 'read';
       const effective = SEVERITY[verdict.category] >= SEVERITY[declared] ? verdict.category : declared;
@@ -271,9 +280,7 @@ function registerTools(server, dispatcher, audit, promptQueue, worldSettings, ch
       if (riding) {
         audit.log('eval.chain', { opId, chainId });
       } else {
-        const decision = await dispatcher.requestConfirmation({
-          capabilitySet: PHASE1_CAPABILITY_SET, opId, kind: 'eval', level, summary: summary.trim(), code,
-        });
+        const decision = await gate(tabId, { opId, kind: 'eval', level, summary: summary.trim(), code });
         if (!decision.approved) {
           audit.log('eval.denied', { opId, reason: decision.reason });
           if (chainId) chains.kill('gate-denied');
@@ -314,8 +321,9 @@ function registerTools(server, dispatcher, audit, promptQueue, worldSettings, ch
       summary: z.string().describe('Plain-English description shown to DatJavaClass at the gate'),
       note: z.string().optional().describe('Optional context (e.g. damage source)'),
       chainId: z.string().optional().describe('Active Chain Mode grant id. Non-lethal applications auto-approve on the chain; a lethal outcome kills the chain and double-confirms normally.'),
+      tabId: TAB_PARAM,
     },
-    async ({ targets, amount, summary, note, chainId }) => {
+    async ({ targets, amount, summary, note, chainId, tabId }) => {
       const plan = await callBridge('damage', { targets, amount, commit: false });
       if (plan && plan.error) return asText({ error: plan.error });
       audit.log('damage.plan', { n: targets.length, amount, lethal: !!plan.lethal });
@@ -327,8 +335,8 @@ function registerTools(server, dispatcher, audit, promptQueue, worldSettings, ch
       if (riding) {
         audit.log('damage.chain', { opId, chainId });
       } else {
-        const decision = await dispatcher.requestConfirmation({
-          capabilitySet: PHASE1_CAPABILITY_SET, opId, kind: 'damage', level,
+        const decision = await gate(tabId, {
+          opId, kind: 'damage', level,
           summary: (plan.lethal ? 'LETHAL - at least one target drops below 1 HP. ' : '') + summary.trim(),
           preview: plan.preview,
         });
@@ -369,8 +377,14 @@ function registerTools(server, dispatcher, audit, promptQueue, worldSettings, ch
     {
       count: z.number().int().min(2).describe('Exact number of gates in the batch'),
       summary: z.string().describe('The manifest DatJavaClass approves: what the batch does, where, e.g. "Create 10 wondrous items in Bridge World Wondrous Items"'),
+      tabId: TAB_PARAM,
     },
-    async ({ count, summary }) => asText(await chains.offer({ count, summary: summary.trim() }))
+    async ({ count, summary, tabId }) => {
+      const id = tabs.resolve(tabId);
+      tabs.gated(id, true);
+      try { return asText(await chains.offer({ count, summary: summary.trim(), tabId: id })); }
+      finally { tabs.gated(id, false); }
+    }
   );
 
   // --- Phase 2: Foundry → Claude Code chat channel ---------------------------
@@ -382,7 +396,12 @@ function registerTools(server, dispatcher, audit, promptQueue, worldSettings, ch
     'foundry_get_prompts',
     'Long-polling drain of chat messages DatJavaClass typed in the in-Foundry "Open Claude Code Chat" ' +
     'box. This BLOCKS server-side until a message arrives or ~25s elapses, then returns ' +
-    '{ prompts: [{promptId,text,ts}], terminate } (prompts may be empty on timeout). Because it ' +
+    '{ prompts: [{promptId,text,tabId,ts}], tabs, closedTabs, terminate } (prompts may be empty on ' +
+    'timeout). Each prompt belongs to a tab (DESIGN §14: one tab = one task, all on this one ' +
+    'listener). With settings.multitasking on, serve each tab with its own background subagent ' +
+    'and keep polling; a prompt on an existing tab is a follow-up for that tab\'s agent. ' +
+    '`closedTabs` lists tabs DatJavaClass closed since the last poll: stop their agents, send ' +
+    'nothing more to them. `tabs` is the live table {id,title,state}. Because it ' +
     'blocks, call it back-to-back with NO added delay/sleep - do not pace it yourself; the ' +
     'server provides the pacing and pickup is near-instant. Calling this marks the box "Ready to ' +
     'chat". If `terminate` is true, STOP the loop immediately - do not reschedule, do not poll ' +
@@ -404,8 +423,10 @@ function registerTools(server, dispatcher, audit, promptQueue, worldSettings, ch
       }
       await promptQueue.waitForWork();
       const r = promptQueue.drain();
-      if (r.prompts.length || r.terminate) {
-        audit.log('chat.poll', { count: r.prompts.length, terminate: r.terminate });
+      r.closedTabs = tabs.drainClosed();
+      r.tabs = tabs.list();
+      if (r.prompts.length || r.terminate || r.closedTabs.length) {
+        audit.log('chat.poll', { count: r.prompts.length, terminate: r.terminate, closed: r.closedTabs.length });
       }
       return asText(r);
     }
@@ -414,21 +435,28 @@ function registerTools(server, dispatcher, audit, promptQueue, worldSettings, ch
   server.tool(
     'foundry_send_reply',
     'Send a reply back into the in-Foundry chat box so DatJavaClass sees it. Call this after ' +
-    'foundry_get_prompts returns prompts. Pass the reply `text`; optionally echo the `promptId` ' +
-    'you are answering. Returns { delivered } - false means the bridge box/WS is not currently ' +
-    'connected (the message is not buffered; tell DatJavaClass on the next poll if it keeps failing).',
+    'foundry_get_prompts returns prompts. Pass the reply `text` and the `tabId` of the prompt ' +
+    'you are answering (required whenever more than one tab is open; a reply to a closed tab is ' +
+    'shown in the first tab, prefixed with the old tab\'s title). Optionally echo the `promptId`. ' +
+    'Set `final:false` for a progress line when more is coming, so the tab keeps its working ' +
+    'indicator; the default marks the tab done. Returns { delivered, tabId } - delivered:false ' +
+    'means the bridge box/WS is not currently connected (the message is not buffered; tell ' +
+    'DatJavaClass on the next poll if it keeps failing).',
     {
       text: z.string().describe('The reply to render in the Foundry chat box'),
       promptId: z.string().optional().describe('The promptId being answered, if known'),
+      tabId: z.string().optional().describe('Tab the reply belongs to (from the prompt). Omit = first tab.'),
+      final: z.boolean().optional().describe('false = progress line, tab stays working (default true)'),
     },
-    async ({ text, promptId }) => {
+    async ({ text, promptId, tabId, final }) => {
+      const routed = tabs.reply(tabId || tabs.first().id, text, { final: final !== false });
       const delivered = dispatcher.notifyBridge({
         capabilitySet: PHASE1_CAPABILITY_SET,
         method: 'claude.reply',
-        params: { promptId, text },
+        params: { promptId, text: routed.text, tabId: routed.tabId },
       });
-      audit.log('chat.reply', { promptId, delivered, len: text.length });
-      return asText({ delivered });
+      audit.log('chat.reply', { promptId, tabId: routed.tabId, delivered, len: text.length });
+      return asText({ delivered, tabId: routed.tabId });
     }
   );
 

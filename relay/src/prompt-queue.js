@@ -12,9 +12,10 @@ const LONG_POLL_TIMEOUT_MS = 25_000;
 const TERMINATORS = new Set(['/exit', '/stop', '/quit']);
 
 export class PromptQueue {
-  constructor({ dispatcher, audit, stopFilePath }) {
+  constructor({ dispatcher, audit, stopFilePath, tabs }) {
     this.dispatcher = dispatcher;
     this.audit = audit;
+    this.tabs = tabs; /* §14 tab table; prompts land in a tab */
     this.stopFilePath = stopFilePath;
     this.queue = [];
     this.terminate = false;
@@ -49,17 +50,19 @@ export class PromptQueue {
     if (this._sweep) { clearInterval(this._sweep); this._sweep = null; }
   }
 
-  _onPrompt({ promptId, text }) {
+  _onPrompt({ promptId, text, tabId }) {
     const trimmed = (text || '').trim();
     if (TERMINATORS.has(trimmed.toLowerCase())) {
       this.terminate = true;
+      this.tabs?.reset('terminate');
       this.audit.log('chat.terminate', { via: trimmed.toLowerCase() });
       this._broadcastStatus();
       this._wake();
       return;
     }
-    this.queue.push({ promptId: promptId || `p-${Date.now()}`, text: text ?? '', ts: new Date().toISOString() });
-    this.audit.log('chat.in', { promptId, len: (text || '').length });
+    const tab = this.tabs?.prompt(tabId, text ?? '');
+    this.queue.push({ promptId: promptId || `p-${Date.now()}`, text: text ?? '', tabId: tab, ts: new Date().toISOString() });
+    this.audit.log('chat.in', { promptId, tabId: tab, len: (text || '').length });
     // Refresh status as the user types.
     this._broadcastStatus();
     this._wake(); // release in-flight long-polls immediately
@@ -121,6 +124,7 @@ export class PromptQueue {
       // Free slot now; relaunch never waits 45s.
       this.activeListenerId = null;
       this.listenerActive = false;
+      this.tabs?.reset('terminate'); /* .loop-stop path */
       this._broadcastStatus();
     }
     const prompts = this.queue.splice(0, this.queue.length);

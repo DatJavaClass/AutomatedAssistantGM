@@ -20,7 +20,7 @@ export class ChainRegistry {
   }
 
   // Claude offers; GM answers one single-confirm card.
-  async offer({ count, summary }) {
+  async offer({ count, summary, tabId }) {
     if (!this.settings.get('chainOffers')) return { refused: true, reason: 'chain-offers-disabled' };
     if (this.active) return { refused: true, reason: 'chain-already-active' };
     const max = this.settings.get('chainMaxLength');
@@ -29,7 +29,7 @@ export class ChainRegistry {
     }
     const chainId = `chain-${randomUUID()}`;
     const decision = await this.dispatcher.requestConfirmation({
-      capabilitySet: CAPABILITY_SET, opId: chainId, kind: 'chain', level: 'single',
+      capabilitySet: CAPABILITY_SET, opId: chainId, kind: 'chain', level: 'single', tabId,
       summary: `CHAIN MODE - approve ${count} single-auth gates as one batch:\n${summary}`,
     });
     if (!decision.approved) {

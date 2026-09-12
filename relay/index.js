@@ -14,6 +14,7 @@ import { PromptQueue } from './src/prompt-queue.js';
 import { Audit } from './src/audit.js';
 import { WorldSettings } from './src/world-settings.js';
 import { ChainRegistry } from './src/chain.js';
+import { TabTable } from './src/tabs.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -52,10 +53,13 @@ const dispatcher = new Dispatcher({ audit });
 
 // `.loop-stop` in the relay dir is a local kill switch for the Claude Code
 // /loop - drop the file (or type /exit in the box) to end the loop cleanly.
+// §14: one tab per task; the relay owns the table, the box renders it.
+const tabs = new TabTable({ dispatcher, audit });
 const promptQueue = new PromptQueue({
   dispatcher,
   audit,
   stopFilePath: join(__dirname, '.loop-stop'),
+  tabs,
 });
 promptQueue.start();
 
@@ -65,7 +69,7 @@ const worldSettings = new WorldSettings({ dispatcher, audit });
 const chains = new ChainRegistry({ dispatcher, audit, settings: worldSettings });
 
 const ws = startWsServer({ config, dispatcher, audit, worldSettings });
-const mcp = await startMcpServer({ config, dispatcher, audit, promptQueue, worldSettings, chains });
+const mcp = await startMcpServer({ config, dispatcher, audit, promptQueue, worldSettings, chains, tabs });
 
 console.log(`[relay] ready - WS on ws://${config.ws.host}:${config.ws.port}, MCP on http://${config.mcp.host}:${config.mcp.port}/mcp`);
 
