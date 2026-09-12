@@ -679,7 +679,9 @@ the box.
 2. Box: tab bar, rebuild from `hello`, flash, cap, close. **Built
    2026-09-12** (`chat-macro.js`; bridge api gains `closeTab`, `onTabs`,
    `tabId` on `sendPrompt`; jsdom harness 13/13).
-3. Skill: dispatcher loop, subagent per tab, closed-tab handling.
+3. Skill: dispatcher loop, subagent per tab, closed-tab handling. **Written
+   2026-09-12** (`.claude/skills/aagm/SKILL.md` §3b + subagent brief; the
+   skill folder stays out of the repo, it deploys to the project folder).
 4. Stamp 0.9.0, rebuild zip, Dropbox in-place byte write (never copy-replace).
 
 ---
