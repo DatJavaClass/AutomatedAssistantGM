@@ -1,0 +1,24 @@
+{
+  "id": "foundry-bridge",
+  "title": "AAGM-C: Automated Assistant Game Master - Claude",
+  "description": "Bridge module that exposes a controlled command channel from a running Foundry VTT instance to a local relay process, enabling Claude (Code/Chat) to assist with debug and AAGM workflows. The Claude member of the AAGM family (see also AAGM-O, the OpenAI version).",
+  "version": "2.0.0",
+  "compatibility": {
+    "minimum": "12",
+    "verified": "12.343",
+    "maximum": "12"
+  },
+  "esmodules": [
+    "scripts/bridge.js"
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ],
+  "url": "https://github.com/DatJavaClass/AutomatedAssistantGM/tree/grape/AAGM-C",
+  "manifest": "https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/grape/AAGM-C/module/module.json",
+  "download": "https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/grape/AAGM-C/module.zip"
+}
