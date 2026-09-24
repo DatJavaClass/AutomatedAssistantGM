@@ -1,0 +1,20 @@
+{
+  "name": "aagm-g-relay",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local relay connecting the AAGM-G Foundry module to Grok through Streamable HTTP MCP.",
+  "main": "index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.0",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  }
+}

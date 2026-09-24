@@ -1,0 +1,28 @@
+## Installed dependencies
+node_modules/
+
+## Relay runtime state
+.loop-stop
+
+## Logs
+*.log
+npm-debug.log*
+Logs/
+Rollback Points/
+
+## Temporary files
+*.tmp
+*.tmp.*
+
+## Environment secrets
+.env
+.env.*
+
+## Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+## Editor folders
+.vscode/
+.idea/
