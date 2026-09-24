@@ -34,3 +34,8 @@ desktop.ini
 CLAUDE.md
 # Local Claude Code project dir (settings / local state).
 .claude/
+
+# --- 2.0 runtime data (world snapshots and day logs are local) ---
+Logs/
+rollbacks/
+Rollback Points/
