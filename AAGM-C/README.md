@@ -72,7 +72,7 @@ Add `--scope user` if you want the tools available from any directory.
 
 ## B) Using it once deployed
 
-**The primary workflow is the chat box + an external loop, and it works end-to-end.** With the relay up and a Claude Code `/loop` polling, you operate the whole world conversationally from the "Open Claude Code Chat" macro - Claude handles real GM work: fixing corrupted actors, moving tokens, running combat for them - with each write clearing the Approve/Deny gate. The raw MCP tools listed below are the surface that loop is built on.
+**The primary workflow is the chat box + an external loop, and it works end-to-end.** With the relay up and a Claude Code `/loop` polling, you operate the whole world conversationally from the "Open Claude Code Chat" macro - Claude handles real GM work: fixing corrupted actors, moving tokens, running combat for them - with each write behind a Rollback Point (the Approve/Deny gate under the confirm policy). The raw MCP tools listed below are the surface that loop is built on.
 
 ### Start a session
 1. **Start the relay** from the repo root (leave it running):
