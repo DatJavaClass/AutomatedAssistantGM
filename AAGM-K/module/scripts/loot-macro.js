@@ -10,20 +10,20 @@ async function lootWatchdogMain() {
   const TAG = '[AAGM-KLootWatchdog]';
   const L = (k) => game.i18n.localize('AAGM_K.LOOT.' + k);
 
-  if (!game.user.isGM) {
+  if (!game.user.isGM) { /* non GM warns, exits */
     ui.notifications.warn(L('GmOnly'));
     return;
   }
-  if (!game.modules.get('item-piles')?.active) {
+  if (!game.modules.get('item-piles')?.active) { /* module off errors, exits */
     ui.notifications.error(L('NoItemPiles'));
     return;
   }
 
   /* Repeated runs disarm the watchdog. */
   const prev = window[WINDOW_KEY];
-  if (prev && prev.armed) {
-    for (const [hookName, hookId] of prev.hookIds) Hooks.off(hookName, hookId);
-    for (const rec of prev.watch.values()) clearTimeout(rec.timerId);
+  if (prev && prev.armed) { /* armed run disarms and exits */
+    for (const [hookName, hookId] of prev.hookIds) Hooks.off(hookName, hookId); /* unhooks each recorded hook */
+    for (const rec of prev.watch.values()) clearTimeout(rec.timerId); /* clears each pending timer */
     prev.watch.clear();
     prev.armed = false;
     ui.notifications.info(L('Disarmed'));
@@ -32,13 +32,13 @@ async function lootWatchdogMain() {
   }
 
   const rescueLog = await fromUuid(RESCUE_LOG_UUID);
-  if (!rescueLog) {
+  if (!rescueLog) { /* missing journal errors, exits */
     ui.notifications.error(L('NoJournal') + ' ' + RESCUE_LOG_UUID);
     return;
   }
 
   let page = rescueLog.pages.getName(PAGE_NAME);
-  if (!page) {
+  if (!page) { /* missing page created */
     const created = await rescueLog.createEmbeddedDocuments('JournalEntryPage', [{
       name: PAGE_NAME, type: 'text', 'text.content': '<h2>ItemPile Rescue Log</h2>\n',
     }]);
@@ -59,7 +59,7 @@ async function lootWatchdogMain() {
   });
   const stashPut = (bucket, eventId, record) => enqueue(async () => {
     const stash = foundry.utils.deepClone(rescueLog.getFlag(FLAG_SCOPE, FLAG_KEY) || {});
-    if (!stash[bucket]) stash[bucket] = {};
+    if (!stash[bucket]) stash[bucket] = {}; /* new bucket initialized */
     stash[bucket][eventId] = record;
     await rescueLog.setFlag(FLAG_SCOPE, FLAG_KEY, stash);
   });
@@ -67,37 +67,37 @@ async function lootWatchdogMain() {
   /* Reject phantom PF1 equipment. */
   const PHYSICAL_TYPES = new Set(['weapon', 'equipment', 'consumable', 'loot', 'container', 'implant']);
   const classifyItemData = (d) => {
-    if (!PHYSICAL_TYPES.has(d.type)) return 'phantom';
-    if (d.type === 'equipment') {
+    if (!PHYSICAL_TYPES.has(d.type)) return 'phantom'; /* non physical is phantom */
+    if (d.type === 'equipment') { /* equipment subtype validated */
       const valid = Object.keys((globalThis.pf1 && pf1.config && pf1.config.equipmentTypes) || {});
       const sub = d.system ? d.system.subType : null;
-      if (valid.length && !valid.includes(sub)) return 'phantom';
+      if (valid.length && !valid.includes(sub)) return 'phantom'; /* unknown subtype is phantom */
     }
     return 'physical';
   };
 
   const isLootPile = (actor) => {
     const ip = actor && actor.flags && actor.flags['item-piles'] && actor.flags['item-piles'].data;
-    if (!ip || ip.enabled !== true) return false;
+    if (!ip || ip.enabled !== true) return false; /* not a pile returns false */
     return !['merchant', 'vault', 'auctioneer'].includes(ip.type);
   };
   const isPlayerActor = (actor) => {
-    if (!actor) return false;
-    for (const [userId, level] of Object.entries(actor.ownership || {})) {
-      if (userId === 'default') continue;
+    if (!actor) return false; /* no actor returns false */
+    for (const [userId, level] of Object.entries(actor.ownership || {})) { /* each entry, player owner returns true */
+      if (userId === 'default') continue; /* default entry skipped */
       const u = game.users.get(userId);
-      if (u && !u.isGM && level >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER) return true;
+      if (u && !u.isGM && level >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER) return true; /* player owner returns true */
     }
     return false;
   };
   const resolveActor = (thing) => {
-    if (!thing) return null;
-    if (thing instanceof Actor) return thing;
-    if (thing.actor instanceof Actor) return thing.actor;
-    if (typeof thing === 'string') {
+    if (!thing) return null; /* empty ref unresolved */
+    if (thing instanceof Actor) return thing; /* actor returns itself */
+    if (thing.actor instanceof Actor) return thing.actor; /* token returns its actor */
+    if (typeof thing === 'string') { /* uuid string resolved recursively */
       try { return resolveActor(fromUuidSync(thing)); } catch { return null; }
     }
-    if (thing.documentName === 'Actor') return thing;
+    if (thing.documentName === 'Actor') return thing; /* actor document returned */
     return null;
   };
   const fingerprint = (d) => [
@@ -113,16 +113,16 @@ async function lootWatchdogMain() {
     const actors = [];
     let items = null;
     let userId = null;
-    for (const a of args) {
-      if (Array.isArray(a)) { if (items === null) items = a; continue; }
-      if (typeof a === 'string') {
-        if (game.users.get(a)) { userId = a; continue; }
+    for (const a of args) { /* classifies each hook argument */
+      if (Array.isArray(a)) { if (items === null) items = a; continue; } /* first array becomes items */
+      if (typeof a === 'string') { /* string is user id or uuid */
+        if (game.users.get(a)) { userId = a; continue; } /* user id recorded, next arg */
         const act = resolveActor(a);
-        if (act) actors.push(act);
+        if (act) actors.push(act); /* resolved string adds actor */
         continue;
       }
       const act = resolveActor(a);
-      if (act) actors.push(act);
+      if (act) actors.push(act); /* resolved arg adds actor */
     }
     return { source: actors[0] || null, target: actors[1] || null, items: items || [], userId };
   };
@@ -130,8 +130,8 @@ async function lootWatchdogMain() {
     const raw = entry && entry.item ? entry.item : entry;
     const id = raw && (raw._id || raw.id);
     const live = id && sourceActor ? sourceActor.items.get(id) : null;
-    const data = live ? live.toObject(true) : (raw && raw.name ? foundry.utils.deepClone(raw) : null);
-    if (!data) return null;
+    const data = live ? live.toObject(true) : (raw && raw.name ? foundry.utils.deepClone(raw) : null); /* live, else raw clone */
+    if (!data) return null; /* no data returns null */
     /* Use the transfer magnitude. */
     const qty = Math.abs(Number(entry && entry.quantity != null ? entry.quantity : qtyOf(data))) || qtyOf(data);
     return { data, qty };
@@ -148,14 +148,14 @@ async function lootWatchdogMain() {
   /* Hold arrivals preceding attribution. */
   const recentArrivals = [];
   const rememberArrival = (item, mode) => {
-    if (!isPlayerActor(item.parent)) return;
+    if (!isPlayerActor(item.parent)) return; /* non player item ignored */
     const d = item.toObject(true);
     recentArrivals.push({
       fingerprint: fingerprint(d), actorUuid: item.parent.uuid,
       itemUuid: item.uuid, qty: qtyOf(d), mode, at: Date.now(),
     });
     const cutoff = Date.now() - VERIFY_WINDOW_MS * 2;
-    while (recentArrivals.length && recentArrivals[0].at < cutoff) recentArrivals.shift();
+    while (recentArrivals.length && recentArrivals[0].at < cutoff) recentArrivals.shift(); /* expired arrivals dropped */
   };
 
   const newEventId = () => 'lw-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
@@ -165,7 +165,7 @@ async function lootWatchdogMain() {
     const shortfall = Math.max(0, rec.expectedQty - rec.deliveredQty);
     const stamp = new Date(rec.ts).toLocaleTimeString();
 
-    if (rec.kind === 'phantom') {
+    if (rec.kind === 'phantom') { /* phantom held and logged, exits */
       controller.stats.phantoms++;
       const outcome = shortfall === 0 ? 'landed' : 'lost';
       await stashPut('phantoms', rec.eventId, {
@@ -195,7 +195,7 @@ async function lootWatchdogMain() {
       return;
     }
 
-    if (shortfall === 0) {
+    if (shortfall === 0) { /* full delivery logged, exits */
       controller.stats.delivered++;
       await appendToLog('<p>OK ' + stamp + ' : <strong>' + esc(rec.itemData.name) + '</strong> x ' + rec.expectedQty
         + ' from <em>' + esc(rec.pileName) + '</em> to <em>' + esc(rec.recipientName) + '</em>'
@@ -233,12 +233,12 @@ async function lootWatchdogMain() {
 
   function track(source, target, entry, userId, via) {
     const snap = snapshotFromEntry(entry, source);
-    if (!snap) return;
+    if (!snap) return; /* no snapshot exits */
     const fp = fingerprint(snap.data);
 
     /* Merge duplicate hook records. */
-    for (const open of controller.watch.values()) {
-      if (open.fingerprint === fp && open.pileUuid === source.uuid && open.recipientUuid === target.uuid) {
+    for (const open of controller.watch.values()) { /* each open record, duplicate returns */
+      if (open.fingerprint === fp && open.pileUuid === source.uuid && open.recipientUuid === target.uuid) { /* duplicate counted, exits */
         controller.stats.dupes++;
         return;
       }
@@ -263,7 +263,7 @@ async function lootWatchdogMain() {
       timerId: null,
     };
     rec.timerId = setTimeout(() => {
-      if (controller.watch.has(rec.eventId)) {
+      if (controller.watch.has(rec.eventId)) { /* still watched settles */
         settle(rec).catch((e) => console.error(TAG, 'settle error:', e));
       }
     }, VERIFY_WINDOW_MS);
@@ -272,57 +272,57 @@ async function lootWatchdogMain() {
     console.log(TAG, 'tracking', rec.kind + ':', snap.data.name, 'x' + snap.qty, '->', target.name, 'via', rec.via);
 
     /* Credit pre-attribution deliveries. */
-    for (const a of recentArrivals) {
-      if (!a.at || a.fingerprint !== fp || a.actorUuid !== rec.recipientUuid) continue;
+    for (const a of recentArrivals) { /* credits matching early arrivals */
+      if (!a.at || a.fingerprint !== fp || a.actorUuid !== rec.recipientUuid) continue; /* spent or foreign arrival skipped */
       /* Count merged stacks conservatively. */
       rec.deliveredQty += (a.mode === 'create') ? a.qty : rec.expectedQty;
       rec.landedItemUuid = a.itemUuid;
       a.at = 0; // One arrival credits one record.
     }
-    if (rec.deliveredQty >= rec.expectedQty) {
+    if (rec.deliveredQty >= rec.expectedQty) { /* fully credited settles now */
       clearTimeout(rec.timerId);
       settle(rec).catch((e) => console.error(TAG, 'settle error:', e));
     }
   }
 
   function onPreTransfer({ source, target, items, userId }) {
-    if (!source || !target || !isLootPile(source) || !isPlayerActor(target)) return;
-    for (const entry of items) track(source, target, entry, userId);
+    if (!source || !target || !isLootPile(source) || !isPlayerActor(target)) return; /* not loot to player exits */
+    for (const entry of items) track(source, target, entry, userId); /* tracks each transferred entry */
   }
 
   function onPreTransferAll({ source, target, userId }) {
-    if (!source || !target || !isLootPile(source) || !isPlayerActor(target)) return;
-    for (const item of source.items) {
+    if (!source || !target || !isLootPile(source) || !isPlayerActor(target)) return; /* ignored transfer all exits */
+    for (const item of source.items) { /* tracks each pile item */
       const d = item.toObject(true);
-      if (classifyItemData(d) === 'phantom' && !PHYSICAL_TYPES.has(d.type)) continue;
+      if (classifyItemData(d) === 'phantom' && !PHYSICAL_TYPES.has(d.type)) continue; /* non physical phantom skipped */
       track(source, target, d, userId);
     }
   }
 
   function onPostTransfer({ source, target, items, userId }) {
-    if (!source || !target || !isLootPile(source) || !isPlayerActor(target)) return;
-    for (const entry of items) track(source, target, entry, userId, 'post');
+    if (!source || !target || !isLootPile(source) || !isPlayerActor(target)) return; /* ignored post transfer exits */
+    for (const entry of items) track(source, target, entry, userId, 'post'); /* tracks each posted entry */
   }
 
   const creditDelivery = (item, mode) => {
     const parent = item.parent;
-    if (!(parent instanceof Actor)) return;
+    if (!(parent instanceof Actor)) return; /* non actor parent exits */
     const d = item.toObject(true);
     const fp = fingerprint(d);
     let match = null;
-    for (const rec of controller.watch.values()) {
-      if (rec.fingerprint !== fp || rec.recipientUuid !== parent.uuid) continue;
-      if (!match || rec.ts < match.ts) match = rec;
+    for (const rec of controller.watch.values()) { /* scans watches for match */
+      if (rec.fingerprint !== fp || rec.recipientUuid !== parent.uuid) continue; /* other item or recipient skipped */
+      if (!match || rec.ts < match.ts) match = rec; /* earliest watch wins */
     }
-    if (!match) { rememberArrival(item, mode); controller.stats.ignored++; return; }
-    if (mode === 'create') {
+    if (!match) { rememberArrival(item, mode); controller.stats.ignored++; return; } /* unwatched arrival remembered, exits */
+    if (mode === 'create') { /* create adds, update tops up */
       match.deliveredQty += qtyOf(d);
       match.landedItemUuid = item.uuid;
-    } else {
+    } else { /* update credits delta only */
       match.deliveredQty = Math.max(match.deliveredQty, qtyOf(d) - match.targetPreQty);
       match.landedItemUuid = item.uuid;
     }
-    if (match.deliveredQty >= match.expectedQty) {
+    if (match.deliveredQty >= match.expectedQty) { /* fully credited settles now */
       clearTimeout(match.timerId);
       settle(match).catch((e) => console.error(TAG, 'settle error:', e));
     }
@@ -343,7 +343,7 @@ async function lootWatchdogMain() {
   hookOn('item-piles-transferEverything', (...args) => onPostTransfer(parseIpArgs(args)));
   hookOn('createItem', (item) => creditDelivery(item, 'create'));
   hookOn('updateItem', (item, changes) => {
-    if (changes && changes.system && changes.system.quantity != null) creditDelivery(item, 'update');
+    if (changes && changes.system && changes.system.quantity != null) creditDelivery(item, 'update'); /* quantity change credits delivery */
   });
 
   await appendToLog('<hr><h3>Watchdog armed: ' + new Date().toLocaleString() + '</h3>'

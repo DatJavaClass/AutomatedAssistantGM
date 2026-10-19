@@ -2,7 +2,7 @@
   "id": "aagm-k",
   "title": "AAGM-K: Automated Assistant Game Master - Kimi",
   "description": "Localhost-only bridge connecting a Foundry VTT GM client to Kimi Code CLI through MCP, with interrupts, rollback points, internal and external modes, session logs, Loot Watchdog, and Macro Mirror. The Kimi member of the AAGM family.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "compatibility": {
     "minimum": "12",
     "verified": "12.343",
@@ -30,7 +30,7 @@
       }
     ]
   },
-  "url": "https://github.com/DatJavaClass/AutomatedAssistantGM/tree/grape/AAGM-K",
-  "manifest": "https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/grape/AAGM-K/module/module.json",
-  "download": "https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/grape/AAGM-K/module.zip"
+  "url": "https://github.com/DatJavaClass/AutomatedAssistantGM/tree/main/AAGM-K",
+  "manifest": "https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/main/AAGM-K/module/module.json",
+  "download": "https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/main/AAGM-K/module.zip"
 }

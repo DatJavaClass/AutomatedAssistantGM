@@ -1,5 +1,4 @@
-/* "Open AAGM-K Chat" macro source, serialized via .toString().
-   Self-contained: runtime globals + module api only. */
+/* Chat macro source, serialized via toString. */
 
 async function chatBoxMain() {
   const MODULE_ID = 'aagm-k';
@@ -11,19 +10,19 @@ async function chatBoxMain() {
 
   /* Prefer journal styles over fallback CSS. */
   async function injectMacroStyles(styleId, pageName, fallbackCSS) {
-    if (document.getElementById(styleId)) return;
+    if (document.getElementById(styleId)) return; /* styled already exits */
     let css = fallbackCSS || '';
     try {
       const journal = game.journal.getName('VTT Macro Styles');
       const page = journal?.pages?.getName(pageName);
-      if (page) {
+      if (page) { /* page found reads css */
         const div = document.createElement('div');
         div.innerHTML = page.text?.content || '';
         const raw = div.textContent?.trim();
-        if (raw) css = raw;
+        if (raw) css = raw; /* non empty replaces fallback */
       }
     } catch { /* fallback silently takes over */ }
-    if (!css) return;
+    if (!css) return; /* no css exits */
     const style = document.createElement('style');
     style.id = styleId;
     style.textContent = css;
@@ -41,7 +40,7 @@ async function chatBoxMain() {
   await injectMacroStyles(STYLE_ID, 'Dark Theme', FALLBACK_CSS);
 
   /* Apply the chat layout. */
-  if (!document.getElementById(LAYOUT_ID)) {
+  if (!document.getElementById(LAYOUT_ID)) { /* layout missing injects it */
     const s = document.createElement('style');
     s.id = LAYOUT_ID;
     /* Fixed height prevents Foundry flex collapse. */
@@ -105,7 +104,7 @@ async function chatBoxMain() {
   }
 
   const api = game.modules.get(MODULE_ID)?.api;
-  if (!api || typeof api.isConnected !== 'function' || !api.isConnected()) {
+  if (!api || typeof api.isConnected !== 'function' || !api.isConnected()) { /* offline shows dialog, exits */
     new Dialog({
       title: L('Title'),
       content: `<div class="forge-dialog-dark"><p class="warning">${L('NotConnected')}</p></div>`,
@@ -133,9 +132,9 @@ async function chatBoxMain() {
 
   const renderBar = () => {
     const bar = $el('tabs');
-    if (!bar) return;
+    if (!bar) return; /* no bar exits */
     bar.textContent = '';
-    for (const tab of tabs.values()) {
+    for (const tab of tabs.values()) { /* one button per tab */
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'aagmo-tab aagmo-' + tab.state + (tab.id === activeId ? ' aagmo-active' : '');
@@ -164,9 +163,9 @@ async function chatBoxMain() {
   };
 
   const activate = (id) => {
-    if (!tabs.has(id)) return;
+    if (!tabs.has(id)) return; /* unknown tab exits */
     activeId = id;
-    for (const tab of tabs.values()) tab.log.hidden = tab.id !== id;
+    for (const tab of tabs.values()) tab.log.hidden = tab.id !== id; /* hides all but target */
     renderBar();
     const log = tabs.get(id).log;
     log.scrollTop = log.scrollHeight;
@@ -183,7 +182,7 @@ async function chatBoxMain() {
   };
 
   const addTab = () => {
-    if (tabs.size >= TAB_MAX) return null;
+    if (tabs.size >= TAB_MAX) return null; /* at cap returns null */
     const tab = mintTab(TABS_ON ? newId() : MAIN_TAB, L('TabNew'));
     activate(tab.id);
     setTimeout(() => $el('input')?.focus(), 0);
@@ -192,26 +191,26 @@ async function chatBoxMain() {
 
   const closeTab = (id) => {
     const tab = tabs.get(id);
-    if (!tab) return;
-    if (tab.sent) {
+    if (!tab) return; /* unknown tab exits */
+    if (tab.sent) { /* sent tab asks relay first */
       let delivered = false;
       try { delivered = !!api.closeTab(id); } catch {}
-      if (!delivered) { addMsg('sys', L('StatusDisconnected'), id); setStatus('disconnected'); return; }
+      if (!delivered) { addMsg('sys', L('StatusDisconnected'), id); setStatus('disconnected'); return; } /* undelivered warns, keeps tab */
     }
     tabs.delete(id);
     tab.log.remove();
-    if (activeId === id) {
+    if (activeId === id) { /* active closed picks next */
       const next = tabs.keys().next().value;
-      if (next) activate(next); else addTab();
-    } else renderBar();
+      if (next) activate(next); else addTab(); /* next activates, none adds */
+    } else renderBar(); /* inactive closed redraws bar */
   };
 
   const addMsg = (role, text, tabId) => {
     const log = logFor(tabId);
-    if (!log) return;
+    if (!log) return; /* no log exits */
     const msg = document.createElement('div');
     msg.className = 'aagmo-msg aagmo-' + role;
-    if (role === 'user' || role === 'assistant') {
+    if (role === 'user' || role === 'assistant') { /* chat roles get who label */
       const who = document.createElement('span');
       who.className = 'aagmo-who';
       who.textContent = role === 'user' ? L('You') : L('Assistant');
@@ -226,15 +225,14 @@ async function chatBoxMain() {
 
   const setStatus = (state, text) => {
     const bar = $el('status');
-    if (!bar) return;
+    if (!bar) return; /* no status bar exits */
     const ready = state === 'ready' || state === 'working';
     bar.className = 'aagmo-status ' + (ready ? 'ready' : 'warn');
-    bar.textContent = text || (state === 'working' ? L('StatusWorking')
+    bar.textContent = text || (state === 'working' ? L('StatusWorking') /* text wins, else by state */
       : ready ? L('StatusReady')
       : state === 'disconnected' ? L('StatusDisconnected')
       : L('StatusNoListener'));
   };
-
 
   const div = (cls, text) => { const d = document.createElement('div'); d.className = cls; d.textContent = text; return d; };
   const rpCard = (id) => [...(root?.querySelectorAll('[data-rollback]') || [])].find((c) => c.dataset.rollback === id);
@@ -246,28 +244,28 @@ async function chatBoxMain() {
   };
 
   const renderPoint = (pt) => {
-    if (!pt?.id || rpCard(pt.id)) return; // sync resends, dedupe by id
+    if (!pt?.id || rpCard(pt.id)) return; /* duplicate or idless point exits */
     const log = logFor(pt.tabId);
-    if (!log) return;
+    if (!log) return; /* unknown log skips card */
     const card = document.createElement('div');
     card.className = 'aagmo-msg aagmo-rollback';
     card.dataset.rollback = pt.id;
     card.appendChild(div('aagmo-cf-h', `${L('RollbackPoint')} ${pt.id} (${pt.kind || 'eval'})`));
     card.appendChild(div('aagmo-cf-sum', pt.summary || 'Write'));
-    if (pt.captured) card.appendChild(div('aagmo-rp-cap', pt.captured));
+    if (pt.captured) card.appendChild(div('aagmo-rp-cap', pt.captured)); /* captured note shown when set */
     const docs = Array.isArray(pt.docs) ? pt.docs : [];
-    if (docs.length) {
+    if (docs.length) { /* docs listed when present */
       const det = document.createElement('details');
       det.className = 'aagmo-rp-docs';
       const sm = document.createElement('summary');
       sm.textContent = docs[0] + (docs.length > 1 ? ` (+${docs.length - 1})` : '');
       det.appendChild(sm);
       const ul = document.createElement('ul');
-      for (const d of docs) { const li = document.createElement('li'); li.textContent = d; ul.appendChild(li); }
+      for (const d of docs) { const li = document.createElement('li'); li.textContent = d; ul.appendChild(li); } /* one item per doc */
       det.appendChild(ul);
       card.appendChild(det);
     }
-    if (!pt.state || pt.state === 'live') {
+    if (!pt.state || pt.state === 'live') { /* live shows action, else marks */
       const action = document.createElement('button');
       action.type = 'button';
       action.className = 'aagmo-cf-btn aagmo-cf-action';
@@ -275,50 +273,50 @@ async function chatBoxMain() {
       action.addEventListener('click', () => {
         const prompt = `/rollback ${pt.id}`;
         const promptId = api.sendPrompt(prompt, pt.tabId);
-        if (!promptId) { addMsg('sys', L('StatusDisconnected'), pt.tabId); return; }
+        if (!promptId) { addMsg('sys', L('StatusDisconnected'), pt.tabId); return; } /* send failed warns, exits */
         addMsg('user', prompt, pt.tabId);
         action.disabled = true;
       });
       card.appendChild(action);
-    } else markRolled(card, pt.state);
+    } else markRolled(card, pt.state); /* rolled state marks card */
     log.appendChild(card);
     log.scrollTop = log.scrollHeight;
   };
 
   const renderRollback = (p) => {
-    if (!p) return;
-    if (p.event === 'point') renderPoint(p.point);
-    else if (p.event === 'sync') for (const pt of p.points || []) renderPoint(pt);
-    else if (p.event === 'rolled-back' && p.point?.id) {
+    if (!p) return; /* empty payload exits */
+    if (p.event === 'point') renderPoint(p.point); /* point renders one card */
+    else if (p.event === 'sync') for (const pt of p.points || []) renderPoint(pt); /* sync renders all points */
+    else if (p.event === 'rolled-back' && p.point?.id) { /* rolled back marks and logs */
       const card = rpCard(p.point.id);
-      if (card) markRolled(card, p.point.state);
+      if (card) markRolled(card, p.point.state); /* card found gets marked */
       addMsg('sys', `${p.point.id}: ${p.point.state === 'partial' ? L('RollbackPartial') : L('RollbackApplied')}`, p.point.tabId);
     }
   };
 
   const syncTabs = (list) => {
-    if (!Array.isArray(list)) return;
+    if (!Array.isArray(list)) return; /* non list exits */
     const seen = new Set();
-    for (const record of list) {
-      if (!record?.id || (!TABS_ON && record.id !== MAIN_TAB)) continue;
+    for (const record of list) { /* mirrors each relay record */
+      if (!record?.id || (!TABS_ON && record.id !== MAIN_TAB)) continue; /* bad or foreign id skipped */
       seen.add(record.id);
       let tab = tabs.get(record.id);
-      if (!tab) {
+      if (!tab) { /* new record mints tab */
         tab = mintTab(record.id, record.title || record.id, record.state);
-        for (const line of record.transcript || []) addMsg(line.role, line.text, record.id);
+        for (const line of record.transcript || []) addMsg(line.role, line.text, record.id); /* replays each transcript line */
       }
       tab.title = record.title || tab.title;
       tab.state = record.state || 'idle';
       tab.sent = true;
     }
-    for (const tab of [...tabs.values()]) {
-      if (seen.has(tab.id)) continue;
+    for (const tab of [...tabs.values()]) { /* prunes stale tabs */
+      if (seen.has(tab.id)) continue; /* listed tab kept */
       const pristine = !tab.sent && !tab.log.childElementCount;
-      if (tab.sent || (pristine && seen.size)) { tabs.delete(tab.id); tab.log.remove(); }
+      if (tab.sent || (pristine && seen.size)) { tabs.delete(tab.id); tab.log.remove(); } /* stale tab removed */
     }
-    if (!tabs.size) addTab();
-    else if (!tabs.has(activeId)) activate(tabs.keys().next().value);
-    else renderBar();
+    if (!tabs.size) addTab(); /* empty adds tab */
+    else if (!tabs.has(activeId)) activate(tabs.keys().next().value); /* lost active picks first */
+    else renderBar(); /* otherwise redraws bar */
   };
 
   /* Insert dropped document references. */
@@ -335,10 +333,10 @@ async function chatBoxMain() {
   const onDrop = (ev) => {
     let data = null;
     try { data = TextEditor.getDragEventData(ev); } catch { return; }
-    if (!data?.uuid) return;
+    if (!data?.uuid) return; /* not a doc drop exits */
     ev.preventDefault();
     const ta = $el('input');
-    if (!ta) return;
+    if (!ta) return; /* no input exits */
     let name = null;
     try { name = fromUuidSync(data.uuid)?.name || null; } catch {}
     insertRef(ta, name ? `@UUID[${data.uuid}]{${name}}` : `@UUID[${data.uuid}]`);
@@ -348,15 +346,15 @@ async function chatBoxMain() {
     const ta = $el('input');
     const text = (ta?.value || '').trim();
     const tab = tabs.get(activeId);
-    if (!text || !tab) return;
-    if (TABS_ON && text.toLowerCase() === '/close') { ta.value = ''; closeTab(tab.id); return; }
+    if (!text || !tab) return; /* empty or no tab exits */
+    if (TABS_ON && text.toLowerCase() === '/close') { ta.value = ''; closeTab(tab.id); return; } /* close command closes tab */
     const interrupt = tab.sent && tab.state === 'working';
     const id = api.sendPrompt(text, tab.id);
-    if (!id) { addMsg('sys', L('StatusDisconnected'), tab.id); setStatus('disconnected'); return; }
-    if (!tab.sent) { tab.title = text.slice(0, TAB_TITLE_LEN); tab.state = 'working'; }
+    if (!id) { addMsg('sys', L('StatusDisconnected'), tab.id); setStatus('disconnected'); return; } /* relay down warns, exits */
+    if (!tab.sent) { tab.title = text.slice(0, TAB_TITLE_LEN); tab.state = 'working'; } /* first send titles tab */
     tab.sent = true;
     addMsg('user', text, tab.id);
-    if (interrupt) setStatus('working', L('Interrupt'));
+    if (interrupt) setStatus('working', L('Interrupt')); /* interrupt shows notice */
     renderBar();
     ta.value = '';
     ta.focus();
@@ -384,16 +382,16 @@ async function chatBoxMain() {
       $el('send')?.addEventListener('click', submit);
       const ta = $el('input');
       ta?.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); submit(); }
+        if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); submit(); } /* Enter submits, Shift newlines */
       });
       $el('tabs')?.addEventListener('click', (ev) => {
         const close = ev.target.closest?.('[data-close]');
-        if (close) { ev.stopPropagation(); closeTab(close.dataset.close); return; }
-        if (ev.target.closest?.('[data-aagmo="tabadd"]')) { addTab(); return; }
+        if (close) { ev.stopPropagation(); closeTab(close.dataset.close); return; } /* close button closes tab */
+        if (ev.target.closest?.('[data-aagmo="tabadd"]')) { addTab(); return; } /* add button adds tab */
         const tab = ev.target.closest?.('[data-tab]');
-        if (tab) activate(tab.dataset.tab);
+        if (tab) activate(tab.dataset.tab); /* tab click activates */
       });
-      if (TABS_ON) addTab(); else activate(mintTab(MAIN_TAB, L('Title')).id);
+      if (TABS_ON) addTab(); else activate(mintTab(MAIN_TAB, L('Title')).id); /* multitask adds, else main */
       const wrap = $el('wrap');
       let dragDepth = 0;
       const undrop = () => { dragDepth = 0; $el('input')?.classList.remove('aagmo-drop'); };
@@ -404,7 +402,7 @@ async function chatBoxMain() {
       });
       wrap?.addEventListener('dragleave', () => {
         dragDepth--;
-        if (dragDepth <= 0) undrop();
+        if (dragDepth <= 0) undrop(); /* last leave clears highlight */
       });
       wrap?.addEventListener('dragover', (ev) => ev.preventDefault());
       wrap?.addEventListener('drop', (ev) => {
@@ -415,8 +413,8 @@ async function chatBoxMain() {
       api.requestStatus();
       poll = setInterval(() => {
         const c = api.isConnected();
-        if (!c) setStatus('disconnected');
-        else if (!wasConnected) { api.requestStatus(); } // reconnected: refresh
+        if (!c) setStatus('disconnected'); /* dropped link shows disconnected */
+        else if (!wasConnected) { api.requestStatus(); } /* reconnect refreshes status */
         wasConnected = c;
       }, 3000);
       setTimeout(() => $el('input')?.focus(), 50);
@@ -427,7 +425,7 @@ async function chatBoxMain() {
       try { unsubMode?.(); } catch {}
       try { unsubRollback?.(); } catch {}
       try { unsubTabs?.(); } catch {}
-      if (poll) { clearInterval(poll); poll = null; }
+      if (poll) { clearInterval(poll); poll = null; } /* timer cleared when set */
     },
   }, { width: 560, resizable: false, classes: ['aagmo-dialog'] });
 

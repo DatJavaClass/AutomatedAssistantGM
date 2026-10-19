@@ -19,7 +19,7 @@ const DEFS = {
 };
 
 export function registerModeSettings() {
-  for (const [key, def] of Object.entries(DEFS)) {
+  for (const [key, def] of Object.entries(DEFS)) { // registers each key, then exits
     game.settings.register(MODULE_ID, key, {
       scope: 'world',
       config: false,
@@ -32,6 +32,6 @@ export function registerModeSettings() {
 
 export function settingsSnapshot() {
   const settings = {};
-  for (const key of SETTING_KEYS) settings[key] = game.settings.get(MODULE_ID, key);
+  for (const key of SETTING_KEYS) settings[key] = game.settings.get(MODULE_ID, key); // reads each key into snapshot
   return settings;
 }

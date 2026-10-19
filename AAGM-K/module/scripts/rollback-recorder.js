@@ -15,9 +15,9 @@ let chain = Promise.resolve();
 function denied(doc) {
   try {
     const page = doc.documentName === 'JournalEntryPage';
-    const j = page ? doc.parent : doc.documentName === 'JournalEntry' ? doc : null;
-    if (!j) return false;
-    if (DENY_IDS.has(j.id) || DENY_NAME.test(String(j.name ?? ''))) return true;
+    const j = page ? doc.parent : doc.documentName === 'JournalEntry' ? doc : null; // page parent or journal
+    if (!j) return false; // non journal passes, else checked
+    if (DENY_IDS.has(j.id) || DENY_NAME.test(String(j.name ?? ''))) return true; // protected journal denied
     const pages = [...(page ? [doc] : []), ...Array.from(j.pages ?? [])];
     return pages.some((p) => p.getFlag?.('world', 'runManaged') || p.flags?.world?.runManaged);
   } catch { return true; } // unsure means skip
@@ -31,13 +31,13 @@ function snap(doc) {
 }
 
 function stamp(entry, s) {
-  if (s.oversized) entry.oversized = true;
-  if (s.partial) entry.partial = true;
+  if (s.oversized) entry.oversized = true; // oversized flag set when true
+  if (s.partial) entry.partial = true; // partial flag set when true
   return entry;
 }
 
 function onPreUpdate(doc) {
-  if (!rec || denied(doc)) return;
+  if (!rec || denied(doc)) return; // idle or denied exits
   const uuid = doc.uuid;
   if (rec.updated.has(uuid) || rec.created.has(uuid)) return; // earliest state wins
   rec.updated.add(uuid);
@@ -46,26 +46,26 @@ function onPreUpdate(doc) {
 }
 
 function onPreCreate(doc, data, options) {
-  if (rec && options && !denied(doc)) options._aagmRp = rec.id;
+  if (rec && options && !denied(doc)) options._aagmRp = rec.id; // recording tags options, else skips
 }
 
 function onCreate(doc, options) {
-  if (!rec || options?._aagmRp !== rec.id) return;
+  if (!rec || options?._aagmRp !== rec.id) return; // foreign create exits, ours logged
   rec.created.add(doc.uuid);
   rec.entries.push({ op: 'create', uuid: doc.uuid, documentName: doc.documentName, name: doc.name ?? null });
 }
 
 function onPreDelete(doc) {
-  if (!rec || denied(doc)) return;
+  if (!rec || denied(doc)) return; // idle or denied skips snapshot
   const s = snap(doc);
   rec.entries.push(stamp({ op: 'delete', uuid: doc.uuid, documentName: doc.documentName, name: doc.name ?? null,
     parentUuid: doc.parent?.uuid ?? null, pack: doc.pack ?? null, data: s.obj }, s));
 }
 
 export function installRecorder() {
-  if (installed) return;
+  if (installed) return; // installed exits, else hooks
   installed = true;
-  for (const T of DOC_TYPES) {
+  for (const T of DOC_TYPES) { // hooks four events per type
     Hooks.on(`preUpdate${T}`, onPreUpdate);
     Hooks.on(`preCreate${T}`, onPreCreate);
     Hooks.on(`create${T}`, onCreate);
@@ -87,7 +87,7 @@ export function runRecorded(rp, fn) {
       const result = await fn();
       return { result, entries };
     } catch (err) {
-      if (err && typeof err === 'object') err.rollbackEntries = entries;
+      if (err && typeof err === 'object') err.rollbackEntries = entries; // objects get entries, others pass
       throw err;
     } finally {
       rec = null;

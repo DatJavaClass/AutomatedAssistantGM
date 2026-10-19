@@ -1,8 +1,8 @@
 import { truncateForLog } from './audit.js';
 
-const MAX_LINES = 40;
-const TITLE_LEN = 24;
-const DEFAULT_ID = 't-main';
+const MAX_LINES = 40; // transcript line cap
+const TITLE_LEN = 24; // tab title length
+const DEFAULT_ID = 't-main'; // fallback tab id
 
 export class TabTable {
   constructor({ dispatcher, audit, capabilitySet }) {
@@ -18,7 +18,7 @@ export class TabTable {
   ensure(tabId, firstText = '') {
     const id = tabId || DEFAULT_ID;
     let tab = this.tabs.get(id);
-    if (!tab) {
+    if (!tab) { // new tab created, else reused
       const title = firstText.trim().slice(0, TITLE_LEN) || id;
       tab = { id, title, state: 'idle', transcript: [] };
       this.tabs.set(id, tab);
@@ -28,7 +28,7 @@ export class TabTable {
   }
 
   first() {
-    for (const tab of this.tabs.values()) return tab;
+    for (const tab of this.tabs.values()) return tab; // first existing tab returned
     return this.ensure(DEFAULT_ID);
   }
 
@@ -50,7 +50,7 @@ export class TabTable {
 
   reply(tabId, text, { final = true } = {}) {
     const id = tabId;
-    if (!this.tabs.has(id)) {
+    if (!this.tabs.has(id)) { // unknown tab drops reply
       this.audit.log('tab.reply.dropped', { tabId: id, text: truncateForLog(text) });
       return { tabId: id, text, dropped: true };
     }
@@ -63,7 +63,7 @@ export class TabTable {
 
   close(tabId) {
     const tab = this.tabs.get(tabId);
-    if (!tab) return;
+    if (!tab) return; // unknown tab ignored
     this.tabs.delete(tabId);
     this.closed.push(tabId);
     this.audit.log('tab.close', { tabId });
@@ -72,7 +72,7 @@ export class TabTable {
   }
 
   reset(reason) {
-    if (!this.tabs.size && !this.closed.length) return;
+    if (!this.tabs.size && !this.closed.length) return; // nothing to reset returns
     this.audit.log('tab.reset', { reason, count: this.tabs.size });
     this.tabs.clear();
     this.closed.length = 0;
@@ -81,12 +81,12 @@ export class TabTable {
 
   settle(reason) {
     let changed = 0;
-    for (const tab of this.tabs.values()) {
-      if (tab.state !== 'working') continue;
+    for (const tab of this.tabs.values()) { // working tabs marked done
+      if (tab.state !== 'working') continue; // non working tabs skipped
       tab.state = 'done';
       changed++;
     }
-    if (!changed) return;
+    if (!changed) return; // none changed returns
     this.audit.log('tab.settle', { reason, count: changed });
     this.broadcast();
   }
@@ -101,6 +101,6 @@ export class TabTable {
 
   push(tab, role, text) {
     tab.transcript.push({ role, text, ts: new Date().toISOString() });
-    if (tab.transcript.length > MAX_LINES) tab.transcript.splice(0, tab.transcript.length - MAX_LINES);
+    if (tab.transcript.length > MAX_LINES) tab.transcript.splice(0, tab.transcript.length - MAX_LINES); // over cap trims oldest lines
   }
 }

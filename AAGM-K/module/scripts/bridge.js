@@ -79,11 +79,11 @@ Hooks.once('init', () => {
 });
 
 Hooks.once('ready', () => {
-  if (!game.user.isGM) return;
+  if (!game.user.isGM) return; // non GM exits, GM continues
   installRecorder();
   /* Module API supports macros and diagnostics. */
   const mod = game.modules.get(MODULE_ID);
-  if (mod) {
+  if (mod) { // module found, api attached
     mod.api = {
       status: () => ({
         enabled: game.settings.get(MODULE_ID, 'enabled'),
@@ -93,23 +93,23 @@ Hooks.once('ready', () => {
       }),
       restart: () => {
         stopClient();
-        if (game.settings.get(MODULE_ID, 'enabled')) startClient();
+        if (game.settings.get(MODULE_ID, 'enabled')) startClient(); // enabled starts client, else skips
       },
       isConnected: () => !!client && client.isOpen(),
       sendPrompt: (text, tabId) => {
-        if (!client || !client.isOpen()) return null;
+        if (!client || !client.isOpen()) return null; // closed returns null, open continues
         const promptId = `p-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const ok = client.send({ jsonrpc: '2.0', method: 'aagm.prompt', params: { promptId, text, tabId } });
         return ok ? promptId : null;
       },
       closeTab: (tabId) => {
-        if (!client || !client.isOpen()) return false;
+        if (!client || !client.isOpen()) return false; // closed returns false, open continues
         return client.send({ jsonrpc: '2.0', method: 'aagm.prompt', params: {
           promptId: `close-${tabId}-${Date.now()}`, text: '/close', tabId,
         } });
       },
       requestStatus: () => {
-        if (client && client.isOpen()) client.send({ jsonrpc: '2.0', method: 'aagm.status.request', params: {} });
+        if (client && client.isOpen()) client.send({ jsonrpc: '2.0', method: 'aagm.status.request', params: {} }); // open sends request, else skips
       },
       onReply: (cb) => { replySubs.add(cb); return () => replySubs.delete(cb); },
       onStatus: (cb) => { statusSubs.add(cb); return () => statusSubs.delete(cb); },
@@ -117,7 +117,7 @@ Hooks.once('ready', () => {
       onRollback: (cb) => { rollbackSubs.add(cb); return () => rollbackSubs.delete(cb); },
       onTabs: (cb) => { tabsSubs.add(cb); return () => tabsSubs.delete(cb); },
       syncSettings: () => {
-        if (client && client.isOpen()) {
+        if (client && client.isOpen()) { // open sends snapshot, else skips
           client.send({ jsonrpc: '2.0', method: 'settings.sync', params: settingsSnapshot() });
         }
       },
@@ -127,9 +127,9 @@ Hooks.once('ready', () => {
   ensureMacro(CHAT_MACRO_NAME, CHAT_MACRO_COMMAND, 'icons/svg/chat.svg');
   ensureMacro(LOOT_MACRO_NAME, LOOT_MACRO_COMMAND, 'icons/svg/chest.svg');
 
-  if (game.settings.get(MODULE_ID, 'enabled')) {
+  if (game.settings.get(MODULE_ID, 'enabled')) { // enabled connects, else logs
     startClient();
-  } else {
+  } else { // disabled logs and skips connect
     console.log('[aagm-k] disabled in settings; not connecting.');
   }
 });
@@ -137,10 +137,10 @@ Hooks.once('ready', () => {
 /* Refresh only owned automatic macros. */
 async function ensureMacro(name, command, img) {
   try {
-    if (!game.user?.isGM) return;
+    if (!game.user?.isGM) return; // non GM exits, GM continues
     const existing = game.macros.getName(name);
-    if (existing) {
-      if (existing.getFlag(MODULE_ID, 'autoMacro') && existing.command !== command) {
+    if (existing) { // found macro, refresh then exit
+      if (existing.getFlag(MODULE_ID, 'autoMacro') && existing.command !== command) { // owned and stale updates, else skips
         await existing.update({ command });
         console.log(`[aagm-k] refreshed macro "${name}"`);
       }
@@ -157,11 +157,11 @@ async function ensureMacro(name, command, img) {
 }
 
 function startClient() {
-  if (client) return;
-  if (!game.user?.isGM) return;
+  if (client) return; // running exits, none continues
+  if (!game.user?.isGM) return; // non GM exits, GM continues
 
   /* Install logging before connection. */
-  if (!logTap) {
+  if (!logTap) { // no tap installs one, else reuses
     logTap = new LogTap();
     logTap.install();
   }
@@ -177,17 +177,17 @@ function startClient() {
 }
 
 function stopClient() {
-  if (!client) return;
+  if (!client) return; // none exits, running stops
   client.stop();
   client = null;
-  if (logTap) {
+  if (logTap) { // tap present uninstalls it
     logTap.uninstall();
     logTap = null;
   }
 }
 
 function onEnabledChange(enabled) {
-  if (enabled) startClient();
+  if (enabled) startClient(); // on starts, off stops
   else stopClient();
 }
 
@@ -212,35 +212,35 @@ function onConnected() {
 }
 
 function onDisconnected(info) {
-  if (wasConnected) ui.notifications?.warn(game.i18n.localize('AAGM_K.NOTIFY.Disconnected'));
+  if (wasConnected) ui.notifications?.warn(game.i18n.localize('AAGM_K.NOTIFY.Disconnected')); // was connected warns, else silent
   wasConnected = false;
   console.log(`[aagm-k] disconnected: ${info?.reason || ''} (code ${info?.code || ''})`);
 }
 
 /* Notify subscribers and isolate failures. */
 function fanout(subs, payload, label) {
-  for (const fn of subs) {
-    try { fn(payload); } catch (err) { if (label) console.error(`[aagm-k] ${label} subscriber threw:`, err); }
+  for (const fn of subs) { // visits every subscriber, then exits
+    try { fn(payload); } catch (err) { if (label) console.error(`[aagm-k] ${label} subscriber threw:`, err); } // labelled failures log, else silent
   }
 }
 
 async function onMessage(msg) {
   /* Handle the relay handshake. */
-  if (typeof msg.id === 'string' && msg.id.startsWith('hello-')) {
-    if (msg.error) {
+  if (typeof msg.id === 'string' && msg.id.startsWith('hello-')) { // hello reply handled, then exits
+    if (msg.error) { // refusal logs error, else result
       console.error('[aagm-k] relay refused hello:', msg.error);
       ui.notifications?.error(game.i18n.localize('AAGM_K.NOTIFY.Refused'));
-    } else if (msg.result) {
+    } else if (msg.result) { // result logs session, else silent
       console.log(`[aagm-k] relay assigned sessionId=${msg.result.sessionId}, capabilitySet=${msg.result.capabilitySet}`);
     }
     return;
   }
 
   /* Handle relay notifications. */
-  if (msg.method && msg.id == null) {
-    switch (msg.method) {
+  if (msg.method && msg.id == null) { // notification dispatched, then exits
+    switch (msg.method) { // method picks subscriber group, returns
       case 'aagm.reply':
-        if (replySubs.size === 0) {
+        if (replySubs.size === 0) { // chat closed notifies, else fans out
           ui.notifications?.info(game.i18n.localize('AAGM_K.CHAT.ReplyWhileClosed'));
         } else {
           fanout(replySubs, msg.params || {}, 'reply');
@@ -256,7 +256,7 @@ async function onMessage(msg) {
         fanout(modeSubs, msg.params || {}, null);
         return;
       case 'aagm.rollback':
-        if (rollbackSubs.size === 0) {
+        if (rollbackSubs.size === 0) { // no listeners warns, else fans out
           ui.notifications?.warn(game.i18n.localize('AAGM_K.CHAT.RollbackWhileClosed'));
         } else {
           fanout(rollbackSubs, msg.params || {}, null);
@@ -271,9 +271,9 @@ async function onMessage(msg) {
   }
 
   /* Handle relay command requests. */
-  if (msg.method && msg.id != null) {
+  if (msg.method && msg.id != null) { // request runs handler, else no-op
     const handler = HANDLERS[msg.method];
-    if (!handler) {
+    if (!handler) { // unknown method errors, known continues
       client.send({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: `unknown method "${msg.method}"` } });
       return;
     }
@@ -286,10 +286,10 @@ async function onMessage(msg) {
     const rp = params.rp?.id ? params.rp : null; // recorded write
     try {
       let result;
-      if (rp) {
+      if (rp) { // recorded write wraps, else plain
         const { result: r, entries } = await runRecorded(rp, () => handler(params, ctx));
         result = isPlain(r) ? { ...r, rollback: { entries } } : { value: r, rollback: { entries } };
-      } else result = await handler(params, ctx);
+      } else result = await handler(params, ctx); // unrecorded runs handler directly
       client.send({ jsonrpc: '2.0', id: msg.id, result });
     } catch (err) {
       const data = err?.stack ? { stack: err.stack } : undefined;

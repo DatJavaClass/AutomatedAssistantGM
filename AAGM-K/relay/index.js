@@ -35,9 +35,9 @@ function loadConfig() {
     console.error(`[relay] config.json is not valid JSON: ${err.message}`);
     process.exit(1);
   }
-  for (const section of ['ws', 'mcp']) { // localhost only, defense-in-depth
+  for (const section of ['ws', 'mcp']) { // each host checked, bad one exits
     const host = cfg?.[section]?.host;
-    if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') {
+    if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') { // bad host exits, else continues
       console.error(`[relay] config.${section}.host must be 127.0.0.1, localhost, or ::1. Got "${host}".`);
       process.exit(1);
     }

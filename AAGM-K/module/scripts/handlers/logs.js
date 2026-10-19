@@ -3,21 +3,21 @@
 let activeUnsub = null;
 
 export async function handleLogsSubscribe(params, ctx) {
-  if (!ctx.logTap) throw new Error('log tap not installed');
-  if (activeUnsub) {
+  if (!ctx.logTap) throw new Error('log tap not installed'); // missing tap throws
+  if (activeUnsub) { // prior subscription dropped first
     activeUnsub();
     activeUnsub = null;
   }
   const levels = Array.isArray(params?.levels) && params.levels.length ? new Set(params.levels) : null;
   let filterRe = null;
-  if (params?.filter) {
+  if (params?.filter) { // filter given compiles regex
     try { filterRe = new RegExp(params.filter); }
     catch (err) { throw new Error(`invalid filter regex: ${err.message}`); }
   }
 
   const filterFn = (entry) => {
-    if (levels && !levels.has(entry.level)) return false;
-    if (filterRe && !filterRe.test(entry.message)) return false;
+    if (levels && !levels.has(entry.level)) return false; // unlisted level dropped
+    if (filterRe && !filterRe.test(entry.message)) return false; // unmatched message dropped
     return true;
   };
 
@@ -29,7 +29,7 @@ export async function handleLogsSubscribe(params, ctx) {
 }
 
 export async function handleLogsUnsubscribe() {
-  if (activeUnsub) {
+  if (activeUnsub) { // active subscription cleared
     activeUnsub();
     activeUnsub = null;
   }

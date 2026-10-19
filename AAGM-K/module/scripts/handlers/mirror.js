@@ -1,7 +1,7 @@
 function folderPath(folder) {
   const parts = [], seen = new Set();
   let current = folder;
-  while (current && !seen.has(current.id)) {
+  while (current && !seen.has(current.id)) { // walks up folders, stops at root
     seen.add(current.id);
     parts.unshift(current.name);
     current = current.folder || null;
@@ -10,7 +10,7 @@ function folderPath(folder) {
 }
 
 export async function handleMirrorList({ name } = {}) {
-  if (!game.user?.isGM) throw new Error('Macro Mirror is GM-only');
+  if (!game.user?.isGM) throw new Error('Macro Mirror is GM-only'); // non GM throws, GM continues
   const wanted = String(name || '').trim().toLocaleLowerCase();
   const macros = Array.from(game.macros || []).filter((macro) => !wanted || macro.name.toLocaleLowerCase() === wanted);
   return {
@@ -25,12 +25,12 @@ export async function handleMirrorList({ name } = {}) {
 }
 
 export async function handleMirrorRestore({ record } = {}) {
-  if (!game.user?.isGM) throw new Error('Macro Mirror is GM-only');
-  if (!record || typeof record.command !== 'string') throw new Error('invalid mirror record');
+  if (!game.user?.isGM) throw new Error('Macro Mirror is GM-only'); // non GM throws, GM continues
+  if (!record || typeof record.command !== 'string') throw new Error('invalid mirror record'); // bad record throws
   const folder = await ensureFolder(record.folderPath);
   let macro = null;
   try { macro = await fromUuid(record.uuid); } catch {}
-  if (macro?.documentName === 'Macro') {
+  if (macro?.documentName === 'Macro') { // existing macro updated, returns
     await macro.update({ command: record.command, img: record.img || macro.img, folder: folder?.id || null });
     return { restored: true, created: false, uuid: macro.uuid, name: macro.name };
   }
@@ -48,12 +48,12 @@ export async function handleMirrorRestore({ record } = {}) {
 async function ensureFolder(path) {
   const parts = String(path || '').split('/').map((part) => part.trim()).filter(Boolean);
   let parent = null;
-  for (const name of parts) {
-    let folder = game.folders.find((candidate) =>
+  for (const name of parts) { // finds or creates each level
+    let folder = game.folders.find((candidate) => // matches type, name, parent
       candidate.type === 'Macro'
       && candidate.name === name
       && (candidate.folder?.id || candidate.folder || null) === (parent?.id || null));
-    if (!folder) folder = await Folder.create({ name, type: 'Macro', folder: parent?.id || null });
+    if (!folder) folder = await Folder.create({ name, type: 'Macro', folder: parent?.id || null }); // missing folder created
     parent = folder;
   }
   return parent;

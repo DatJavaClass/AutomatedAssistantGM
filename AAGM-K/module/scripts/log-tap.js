@@ -11,8 +11,8 @@ export class LogTap {
   }
 
   install() {
-    if (this.installed) return;
-    for (const level of LEVELS) {
+    if (this.installed) return; // already tapped exits, else installs
+    for (const level of LEVELS) { // wraps each level, then exits
       const orig = console[level];
       this.originals[level] = orig;
       console[level] = (...args) => {
@@ -32,12 +32,12 @@ export class LogTap {
   }
 
   uninstall() {
-    if (!this.installed) return;
-    for (const level of LEVELS) {
+    if (!this.installed) return; // untapped exits, else restores
+    for (const level of LEVELS) { // restores each level, then exits
       console[level] = this.originals[level];
     }
-    if (this._winErrorHandler) window.removeEventListener('error', this._winErrorHandler);
-    if (this._winRejectionHandler) window.removeEventListener('unhandledrejection', this._winRejectionHandler);
+    if (this._winErrorHandler) window.removeEventListener('error', this._winErrorHandler); // handler present removes listener
+    if (this._winRejectionHandler) window.removeEventListener('unhandledrejection', this._winRejectionHandler); // handler present removes listener
     this.originals = {};
     this._winErrorHandler = null;
     this._winRejectionHandler = null;
@@ -52,16 +52,16 @@ export class LogTap {
   }
 
   _fanout({ level, args, source }) {
-    if (this.subscribers.size === 0) return;
+    if (this.subscribers.size === 0) return; // no subscribers exits, else builds
     const entry = {
       level,
       timestamp: new Date().toISOString(),
       source: source || 'console',
       message: args.map(stringifyArg).join(' '),
     };
-    for (const sub of this.subscribers) {
+    for (const sub of this.subscribers) { // each subscriber filtered then notified
       try {
-        if (sub.filterFn && !sub.filterFn(entry)) continue;
+        if (sub.filterFn && !sub.filterFn(entry)) continue; // filtered skips, else callback
         sub.callback(entry);
       } catch {}
     }
@@ -69,8 +69,8 @@ export class LogTap {
 }
 
 function stringifyArg(a) {
-  if (a == null) return String(a);
-  if (typeof a === 'string') return a;
-  if (a instanceof Error) return `${a.name}: ${a.message}\n${a.stack || ''}`;
+  if (a == null) return String(a); // nullish stringified directly
+  if (typeof a === 'string') return a; // strings pass through unchanged
+  if (a instanceof Error) return `${a.name}: ${a.message}\n${a.stack || ''}`; // errors keep name and stack
   try { return JSON.stringify(a); } catch { return String(a); }
 }

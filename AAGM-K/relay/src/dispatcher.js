@@ -2,7 +2,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 30_000; // default call timeout
 
 export class Dispatcher {
   constructor({ audit }) {
@@ -24,12 +24,12 @@ export class Dispatcher {
 
   unregisterBridge(sessionId, reason) {
     const rec = this.bridges.get(sessionId);
-    if (!rec) return;
+    if (!rec) return; // unknown session returns
     this.bridges.delete(sessionId);
     this.audit.log('bridge.disconnected', { sessionId, userId: rec.userId, reason });
     /* Reject disconnected bridge requests. */
-    for (const [reqId, p] of this.pending) {
-      if (p.sessionId === sessionId) {
+    for (const [reqId, p] of this.pending) { // each pending call checked
+      if (p.sessionId === sessionId) { // this bridge rejected, others skipped
         clearTimeout(p.timer);
         p.reject(new Error(`bridge disconnected: ${reason || 'unknown'}`));
         this.pending.delete(reqId);
@@ -39,20 +39,20 @@ export class Dispatcher {
 
   findBridge({ capabilitySet }) {
     /* Return the first matching bridge. */
-    for (const rec of this.bridges.values()) {
-      if (rec.capabilitySet === capabilitySet) return rec;
+    for (const rec of this.bridges.values()) { // first capability match returned
+      if (rec.capabilitySet === capabilitySet) return rec; // match returns bridge, else next
     }
     return null;
   }
 
   async sendToBridge({ capabilitySet, method, params, timeoutMs = DEFAULT_TIMEOUT_MS }) {
     const bridge = this.findBridge({ capabilitySet });
-    if (!bridge) {
+    if (!bridge) { // no bridge throws -33003
       const err = new Error(`no bridge connected with capability set "${capabilitySet}"`);
       err.code = -33003;
       throw err;
     }
-    if (!bridge.capabilities.has(method)) {
+    if (!bridge.capabilities.has(method)) { // unlisted method throws -33001
       const err = new Error(`method "${method}" not in capability set "${capabilitySet}"`);
       err.code = -33001;
       throw err;
@@ -73,7 +73,7 @@ export class Dispatcher {
   /* Relay notification. False means disconnected. */
   notifyBridge({ capabilitySet, method, params }) {
     const bridge = this.findBridge({ capabilitySet });
-    if (!bridge) return false;
+    if (!bridge) return false; // no bridge returns false
     bridge.send({ jsonrpc: '2.0', method, params });
     this.audit.log('notify.out', { sessionId: bridge.sessionId, method });
     return true;
@@ -82,18 +82,18 @@ export class Dispatcher {
   /* Resolve bridge responses. */
   resolveResponse(message) {
     const id = message.id;
-    if (id == null) return false;
+    if (id == null) return false; // idless message ignored
     const p = this.pending.get(id);
-    if (!p) return false;
+    if (!p) return false; // unknown id ignored
     clearTimeout(p.timer);
     this.pending.delete(id);
-    if (message.error) {
+    if (message.error) { // error rejects, else resolves
       const err = new Error(message.error.message || 'bridge error');
       err.code = message.error.code;
       err.data = message.error.data;
       this.audit.log('cmd.err', { id, method: p.method, code: err.code });
       p.reject(err);
-    } else {
+    } else { // result resolves the pending call
       this.audit.log('cmd.ok', { id, method: p.method, result: message.result });
       p.resolve(message.result);
     }
@@ -103,9 +103,9 @@ export class Dispatcher {
   /* Route bridge notifications. */
   routeNotification(message) {
     const subs = this.subscribers.get(message.method);
-    if (!subs || subs.size === 0) return;
+    if (!subs || subs.size === 0) return; // no subscribers returns
     this.audit.log('notify', { method: message.method, subscribers: subs.size });
-    for (const fn of subs) {
+    for (const fn of subs) { // each subscriber called, throws logged
       try { fn(message.params); } catch (err) {
         console.error(`[dispatcher] subscriber for ${message.method} threw:`, err);
       }
@@ -113,7 +113,7 @@ export class Dispatcher {
   }
 
   subscribe(method, fn) {
-    if (!this.subscribers.has(method)) this.subscribers.set(method, new Set());
+    if (!this.subscribers.has(method)) this.subscribers.set(method, new Set()); // first subscriber creates the set
     this.subscribers.get(method).add(fn);
     return () => this.subscribers.get(method)?.delete(fn);
   }

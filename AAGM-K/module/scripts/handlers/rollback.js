@@ -5,11 +5,11 @@ import { runExclusive } from '../rollback-recorder.js';
 const STRIP_KEYS = ['_id','_stats','type','items','effects','pages','results','sounds','tokens','walls','lights','tiles','drawings','notes','templates','regions','combatants','cards','behaviors'];
 
 async function undoUpdate(e) {
-  if (e.oversized || !e.before) return { ok: false, error: 'snapshot oversized' };
+  if (e.oversized || !e.before) return { ok: false, error: 'snapshot oversized' }; // oversized or empty refused
   const d = await fromUuid(e.uuid);
-  if (!d) return { ok: false, error: 'document gone' };
+  if (!d) return { ok: false, error: 'document gone' }; // vanished doc refused
   const payload = foundry.utils.deepClone(e.before);
-  for (const k of STRIP_KEYS) delete payload[k];
+  for (const k of STRIP_KEYS) delete payload[k]; // drops identity and embedded keys
   if (d.documentName === 'Token' && d.actorLink) delete payload.delta; // linked delta writes through
   await d.update(payload, { diff: false, recursive: false });
   return { ok: true };
@@ -17,16 +17,16 @@ async function undoUpdate(e) {
 
 async function undoCreate(e) {
   const d = await fromUuid(e.uuid);
-  if (!d) return { ok: true, note: 'already gone' };
+  if (!d) return { ok: true, note: 'already gone' }; // already gone passes
   await d.delete();
   return { ok: true };
 }
 
 async function undoDelete(e) {
-  if (e.oversized || !e.data) return { ok: false, error: 'snapshot oversized' };
-  if (e.parentUuid) {
+  if (e.oversized || !e.data) return { ok: false, error: 'snapshot oversized' }; // unsnapshotted delete refused
+  if (e.parentUuid) { // embedded restores via parent
     const p = await fromUuid(e.parentUuid);
-    if (!p) return { ok: false, error: 'parent gone' };
+    if (!p) return { ok: false, error: 'parent gone' }; // missing parent refused
     await p.createEmbeddedDocuments(e.documentName, [e.data], { keepId: true });
     return { ok: true };
   }
@@ -38,13 +38,13 @@ async function undoDelete(e) {
 const UNDO = { update: undoUpdate, create: undoCreate, delete: undoDelete };
 
 export async function handleRollbackApply({ pointId, entries, rp } = {}) {
-  if (!Array.isArray(entries)) {
+  if (!Array.isArray(entries)) { // non array throws
     const e = new Error('rollback.apply: `entries` must be an array'); e.code = -32602; throw e;
   }
-  const run = rp?.id ? (fn) => fn() : runExclusive; // recorded runs already hold the chain
+  const run = rp?.id ? (fn) => fn() : runExclusive; // caller holds chain already
   return run(async () => {
     const applied = [];
-    for (const e of [...entries].reverse()) {
+    for (const e of [...entries].reverse()) { // undoes newest first, then exits
       const row = { uuid: e?.uuid ?? null, op: e?.op ?? null };
       try {
         const fn = UNDO[e?.op];
