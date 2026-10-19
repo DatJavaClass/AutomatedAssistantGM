@@ -2,7 +2,7 @@
   "id": "aagm-g",
   "title": "AAGM-G: Automated Assistant Game Master - Grok",
   "description": "Localhost-only bridge connecting a Foundry VTT GM client to Grok through MCP. Version 2.0: interrupts, rollback points, /int and /ext, and a dated markdown log. Loot Watchdog and Macro Mirror stay.",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "compatibility": {
     "minimum": "12",
     "verified": "12.343",
