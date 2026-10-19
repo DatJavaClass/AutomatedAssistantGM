@@ -95,7 +95,8 @@ export class Audit {
     const path = resolve(this.logDir, name);
     const localPath = relative(this.logDir, path);
     if (localPath.startsWith('..') || isAbsolute(localPath)) throw new Error('Audit log path is outside the log directory.'); // path outside log dir throws
-    if (!lstatSync(path).isFile()) throw new Error('Audit log was not found.'); // non file throws, file read
-    return readFileSync(path, 'utf8');
+    try { if (lstatSync(path).isFile()) return readFileSync(path, 'utf8'); } // regular file reads, else falls through
+    catch { /* vanished or unreadable falls through */ }
+    throw new Error('Audit log was not found.');
   }
 }
