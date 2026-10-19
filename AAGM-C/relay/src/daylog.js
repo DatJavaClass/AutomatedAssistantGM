@@ -39,7 +39,10 @@ export class DayLog {
   read(date = localDate(), tail = 0) {
     const path = this.file(date);
     if (!existsSync(path)) return { date, path, lines: [], missing: true }; // missing returns stub, else reads
-    const lines = readFileSync(path, 'utf8').split(/\r?\n/).filter(Boolean); /* nonblank log lines */
+    let text;
+    try { text = readFileSync(path, 'utf8'); } // file reads, else logs and throws
+    catch (err) { this.audit?.log('daylog.error', { message: err.message }); throw new Error('Day log could not be read.'); }
+    const lines = text.split(/\r?\n/).filter(Boolean); /* nonblank log lines */
     return { date, path, lines: tail > 0 ? lines.slice(-tail) : lines };
   }
 

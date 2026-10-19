@@ -88,7 +88,8 @@ async function collectRefs(packIds) {
         if (Date.now() > deadline) { skipped.push(pid); continue; } // past deadline skips pack
         const pack = game.packs.get(pid);
         if (!pack) { skipped.push(`${pid} (not found)`); continue; } // missing pack skips
-        const docs = await pack.getDocuments();
+        let docs;
+        try { docs = await pack.getDocuments(); } catch (e) { return { error: `Pack "${pid}" failed to load: ${e.message}` }; } // fetch fails, returns error
         const before = occs.length;
         for (const d of docs) { // per doc, exits after last
             docRefs.set(`${pid}::${d.id}`, d);
@@ -103,7 +104,7 @@ async function collectRefs(packIds) {
     for (const o of occs) { // per occurrence, exits after last
         if (!idxCache.has(o.packId)) { // uncached pack loads index
             const p = game.packs.get(o.packId);
-            idxCache.set(o.packId, p ? new Set((await p.getIndex()).map(e => e._id)) : null);
+            try { idxCache.set(o.packId, p ? new Set((await p.getIndex()).map(e => e._id)) : null); } catch (e) { return { error: `Pack "${o.packId}" index failed: ${e.message}` }; } // fetch fails, returns error
         }
         const ids = idxCache.get(o.packId);
         o.broken = !ids || !ids.has(o.docId);
@@ -117,7 +118,8 @@ async function resolveMapping(broken, mapping) {
     for (const live of new Set(Object.values(mapping))) { // per target pack, missing returns error
         const lp = game.packs.get(live);
         if (!lp) return { error: `Mapped target pack "${live}" not found.` }; // missing pack returns error
-        const docs = await lp.getDocuments();
+        let docs;
+        try { docs = await lp.getDocuments(); } catch (e) { return { error: `Mapped target pack "${live}" failed to load: ${e.message}` }; } // fetch fails, returns error
         const idMap = new Map(), exactMap = new Map(), cleanMap = new Map();
         let collisions = 0;
         for (const d of docs) { // per target doc, exits after last
@@ -176,7 +178,8 @@ if (!req.action) { // no action shows diagnostic
 
 // scan: read-only.
 if (req.action === "scan") { // scan action reads only
-    const { occs, scanned, skipped } = await collectRefs(packIds);
+    const col = await collectRefs(packIds), { occs, scanned, skipped } = col;
+    if (col.error) return fail(col.error); // load error fails
     const broken = occs.filter(o => o.broken);
     const groups = {};
     for (const o of broken) { // per broken ref, tallies group
@@ -200,7 +203,8 @@ if (req.action === "scan") { // scan action reads only
 if (req.action === "dryrun") { // dryrun action stores receipt
     if (!req.mapping || typeof req.mapping !== "object" || !Object.keys(req.mapping).length) // bad mapping fails
         return fail("dryrun needs a non-empty mapping {deadPackId: livePackId}.");
-    const { occs, skipped } = await collectRefs(packIds);
+    const col = await collectRefs(packIds), { occs, skipped } = col;
+    if (col.error) return fail(col.error); // load error fails
     const broken = occs.filter(o => o.broken && req.mapping[o.packId]);
     const res = await resolveMapping(broken, req.mapping);
     if (res.error) return fail(res.error); // resolve error fails
@@ -229,7 +233,8 @@ if (req.action === "apply") { // apply action writes fixes
     if (Date.now() - receipt.ts > RECEIPT_TTL_MS) // expired receipt fails
         return fail("Dry-run receipt expired (30 min). Re-run dryrun and re-confirm.");
 
-    const { occs, docRefs } = await collectRefs(packIds);
+    const col = await collectRefs(packIds), { occs, docRefs } = col;
+    if (col.error) return fail(col.error); // load error aborts apply
     const broken = occs.filter(o => o.broken && req.mapping[o.packId]);
     const res = await resolveMapping(broken, req.mapping);
     if (res.error) return fail(res.error); // resolve error aborts apply

@@ -20,7 +20,7 @@ There are a lot of mixed feelings about the use of LLMs, AI, in the TTRPGs. Many
 A localhost bridge between a Forge-hosted **Foundry VTT v12** world (Tested on Pathfinder 1e, should work on other systems as of 7/18/26) and **Claude** (Code or Chat). Two pieces:
 
 - **`relay/`** - a Node process on your machine. Runs the WebSocket server (talks to the Foundry module) and the MCP server (talks to Claude) in one process. Localhost-only.
-- **`module/`** - the `foundry-bridge` module (v2.0.1) running in the GM's browser tab. Opens a WebSocket out to the relay.
+- **`module/`** - the `foundry-bridge` module (v2.0.2) running in the GM's browser tab. Opens a WebSocket out to the relay.
 
 Claude reaches Foundry **only** through the relay, and every write runs behind a Rollback Point (or a confirmation gate under the confirm policy).
 
