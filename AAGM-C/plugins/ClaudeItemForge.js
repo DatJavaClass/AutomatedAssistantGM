@@ -1,14 +1,13 @@
-/* Claude Item Forge - files magic items into the "Claude Items" world pack.
-   GM-only Script macro; contract and storage layout documented in the README. */
+/* Claude Item Forge, GM-only item filing macro */
 
-if (!game.user.isGM) return ui.notifications.warn("Claude Item Forge is a GM tool.");
+if (!game.user.isGM) return ui.notifications.warn("Claude Item Forge is a GM tool."); // non GM exits, GM runs on
 
-const TAG = "[ClaudeItemForge]";
-const req = (typeof scope === "object" && scope) ? scope : {};
+const TAG = "[ClaudeItemForge]"; // item forge log prefix
+const req = (typeof scope === "object" && scope) ? scope : {}; // scope payload or empty
 
 // Storage layout: pack + folder tree.
-const PACK_NAME = "claude-items";
-const PACK_LABEL = "Claude Items";
+const PACK_NAME = "claude-items"; // world pack name
+const PACK_LABEL = "Claude Items"; // pack display label
 
 // Definition order matters: parents are created before children.
 const FOLDER_DEFS = [
@@ -45,24 +44,24 @@ const fail = (error, extra = {}) => {
 };
 
 // Ensure storage (pack + folder tree, idempotent).
-let pack = game.packs.find(p =>
+let pack = game.packs.find(p => // existing Claude Items pack
     p.metadata.packageType === "world" &&
     (p.metadata.name === PACK_NAME || p.metadata.label === PACK_LABEL) &&
     p.metadata.type === "Item");
 
-const wasLocked = pack?.locked ?? false;
-const created_folders = [];
+const wasLocked = pack?.locked ?? false; // pack lock before run
+const created_folders = []; // folders made this run
 try {
-    if (!pack) {
+    if (!pack) { // missing pack gets created
         pack = await CompendiumCollection.createCompendium({ name: PACK_NAME, label: PACK_LABEL, type: "Item" });
         console.log(TAG, `created world compendium "${PACK_LABEL}" (${pack.collection})`);
     }
-    if (pack.locked) await pack.configure({ locked: false });
+    if (pack.locked) await pack.configure({ locked: false }); // locked pack unlocks
 
     const folderByKey = {};
-    for (const def of FOLDER_DEFS) {
+    for (const def of FOLDER_DEFS) { // per definition, exits after last
         let f = pack.folders.find(x => x.name === def.name);
-        if (!f) {
+        if (!f) { // missing folder gets created
             f = await Folder.create(
                 { name: def.name, type: "Item", folder: def.parent ? folderByKey[def.parent].id : null },
                 { pack: pack.collection });
@@ -72,7 +71,7 @@ try {
     }
 
     // Bare run: setup + diagnostic, writes no item.
-    if (!req.destination && !req.itemData) {
+    if (!req.destination && !req.itemData) { // bare run shows diagnostic
         const rows = Object.entries(ROUTES).map(([key, holds]) =>
             `<tr><td style="padding:2px 8px;white-space:nowrap"><b>${key}</b></td>
                  <td style="padding:2px 8px">${folderByKey[key].name}</td>
@@ -91,50 +90,50 @@ try {
 
     // Validation.
     const warnings = [];
-    if (!ROUTES[req.destination])
+    if (!ROUTES[req.destination]) // unknown route fails
         return fail(`Unknown destination "${req.destination}". Valid: ${Object.keys(ROUTES).join(", ")}`);
     const folder = folderByKey[req.destination];
 
-    if (!req.itemData || typeof req.itemData !== "object") return fail("itemData missing or not an object.");
+    if (!req.itemData || typeof req.itemData !== "object") return fail("itemData missing or not an object."); // bad payload fails
     const data = foundry.utils.duplicate(req.itemData);
-    for (const k of ["_id", "folder", "pack", "ownership", "_stats", "sort"]) delete data[k];
+    for (const k of ["_id", "folder", "pack", "ownership", "_stats", "sort"]) delete data[k]; // per key, strips id and meta keys
 
-    if (typeof data.name !== "string" || !data.name.trim()) return fail("itemData.name must be a non-empty string.");
+    if (typeof data.name !== "string" || !data.name.trim()) return fail("itemData.name must be a non-empty string."); // empty name fails
     data.name = data.name.trim();
 
     const validTypes = (Item.TYPES ?? []).filter(t => t !== "base");
-    if (!validTypes.includes(data.type))
+    if (!validTypes.includes(data.type)) // unknown item type fails
         return fail(`itemData.type "${data.type}" is not a valid Item type in this world. Valid: ${validTypes.join(", ")}`);
-    if (req.destination.startsWith("weapon-") && data.type !== "weapon")
+    if (req.destination.startsWith("weapon-") && data.type !== "weapon") // weapon route needs weapon type
         return fail(`Destination "${req.destination}" requires type "weapon", got "${data.type}".`);
 
-    if (!data.img) {
+    if (!data.img) { // missing img gets default
         data.img = "icons/svg/item-bag.svg";
         warnings.push("No img supplied; defaulted to icons/svg/item-bag.svg.");
-    } else if (!IMG_OK.test(data.img)) {
+    } else if (!IMG_OK.test(data.img)) { // off policy img fails
         return fail(`img "${data.img}" violates the portable-pack image policy (must start with "icons/" or "systems/${game.system.id}/").`);
     }
     // Same policy in description; embedded <img> breaks portability.
     const desc = foundry.utils.getProperty(data, "system.description.value");
-    if (typeof desc === "string" && /<img[\s>]/i.test(desc))
+    if (typeof desc === "string" && /<img[\s>]/i.test(desc)) // embedded img tag fails
         return fail("system.description.value contains an <img> tag; embedded images are not allowed in the pack.");
 
     // Duplicate guard makes retries idempotent.
     const norm = (s) => s.trim().toLowerCase();
     const twin = pack.index.find(e => norm(e.name ?? "") === norm(data.name));
-    if (twin && !req.allowDuplicate)
+    if (twin && !req.allowDuplicate) // existing twin fails unless forced
         return fail(`"${data.name}" already exists in ${pack.collection} (${twin.uuid}). Pass allowDuplicate:true to force.`,
             { duplicate: true, existing: twin.uuid });
 
     // Create then read-back verify.
     data.folder = folder.id;
     const created = await Item.create(data, { pack: pack.collection });
-    if (!created) return fail("Item.create returned nothing; item was not created.");
+    if (!created) return fail("Item.create returned nothing; item was not created."); // empty create fails
 
     const check = await pack.getDocument(created.id);
-    if (!check) return fail(`Created "${data.name}" but read-back from ${pack.collection} found nothing. Investigate before retrying.`, { uuid: created.uuid });
+    if (!check) return fail(`Created "${data.name}" but read-back from ${pack.collection} found nothing. Investigate before retrying.`, { uuid: created.uuid }); // missing read-back fails
     const checkFolderId = check.folder?.id ?? check.folder ?? null;
-    if (checkFolderId !== folder.id)
+    if (checkFolderId !== folder.id) // folder mismatch adds warning
         warnings.push(`Read-back folder is "${checkFolderId}", expected "${folder.id}" (${folder.name}). Move it manually if it landed loose.`);
 
     const result = {
@@ -153,5 +152,5 @@ try {
 } catch (err) {
     return fail(`Forge failed: ${err.message}`);
 } finally {
-    if (wasLocked && pack) await pack.configure({ locked: true }).catch(e => console.error(TAG, "relock failed", e));
+    if (wasLocked && pack) await pack.configure({ locked: true }).catch(e => console.error(TAG, "relock failed", e)); // relock only if was locked
 }

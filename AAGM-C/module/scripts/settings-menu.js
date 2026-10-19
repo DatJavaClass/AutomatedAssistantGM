@@ -59,23 +59,23 @@ export class AagmSettingsMenu extends FormApplication {
     super.activateListeners(html);
     /* Seatbelt: bind submit if core missed the form */
     const form = html[0] instanceof HTMLFormElement ? html[0] : (html.find('form')[0] || html.closest('form')[0]);
-    if (form && form.onsubmit == null) { this.form = form; form.onsubmit = this._onSubmit.bind(this); }
+    if (form && form.onsubmit == null) { this.form = form; form.onsubmit = this._onSubmit.bind(this); } // unbound form gets submit handler
     // Mode locks options; Mirror, policy stay open.
     html.find('input[name="mode"]').on('change', (ev) => {
       const mode = ev.currentTarget.value, custom = mode === 'custom';
       html.find('[data-aagm="opts"] input').prop('disabled', !custom);
       const p = PRESETS[mode];
-      if (p) for (const [k, v] of Object.entries(p)) html.find(`input[name="${k}"]`).prop('checked', v);
+      if (p) for (const [k, v] of Object.entries(p)) html.find(`input[name="${k}"]`).prop('checked', v); // preset mode checks its boxes
     });
   }
 
   async _updateObject(_event, formData) {
     const mode = (PRESETS[formData.mode] || formData.mode === 'custom') ? formData.mode : 'assistant';
-    if (PRESETS[mode]) Object.assign(formData, PRESETS[mode]); /* presets win */
+    if (PRESETS[mode]) Object.assign(formData, PRESETS[mode]); /* presets win */ // preset values override form
     formData.mode = mode;
-    if (!['rollback', 'confirm'].includes(formData.writePolicy)) formData.writePolicy = 'rollback';
-    for (const k of SETTING_KEYS) {
-      if (formData[k] !== undefined) await game.settings.set(MODULE_ID, k, formData[k]);
+    if (!['rollback', 'confirm'].includes(formData.writePolicy)) formData.writePolicy = 'rollback'; // unknown policy resets to rollback
+    for (const k of SETTING_KEYS) { // each posted key saved
+      if (formData[k] !== undefined) await game.settings.set(MODULE_ID, k, formData[k]); // absent keys left unsaved
     }
     game.modules.get(MODULE_ID)?.api?.syncSettings?.(); /* relay is the enforcer */
     ui.notifications?.info(game.i18n.localize('FOUNDRY_BRIDGE.SETTINGS.Saved'));

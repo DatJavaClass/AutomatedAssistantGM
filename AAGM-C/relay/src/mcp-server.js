@@ -7,33 +7,33 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { classifyEval, SEVERITY } from './eval-guard.js';
 
-const PHASE1_CAPABILITY_SET = 'debug';
+const PHASE1_CAPABILITY_SET = 'debug'; /* relay capability set */
 
 export async function startMcpServer({ config, dispatcher, audit, promptQueue, worldSettings, chains, tabs, daylog, rollbacks }) {
   const { host, port } = config.mcp;
-  if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') {
+  if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') { // non loopback throws, else binds
     throw new Error(`refusing to bind MCP server to non-localhost address "${host}"`);
   }
 
   // Fresh McpServer per request, long polls overlap
   const makeServer = () => {
-    const s = new McpServer({ name: 'foundry-bridge-relay', version: '2.0.0' });
+    const s = new McpServer({ name: 'foundry-bridge-relay', version: '2.0.0' }); /* per request server */
     registerTools(s, { dispatcher, audit, promptQueue, worldSettings, chains, tabs, daylog, rollbacks });
     return s;
   };
 
   const httpServer = http.createServer((req, res) => {
-    if (req.method === 'POST' && req.url === '/mcp') {
+    if (req.method === 'POST' && req.url === '/mcp') { // MCP post handled, returns
       handlePost(req, res, makeServer, audit);
       return;
     }
     // Liveness probe: relay up, bridge connected?
-    if (req.method === 'GET' && req.url === '/healthz') {
+    if (req.method === 'GET' && req.url === '/healthz') { // probe answers, returns
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ ok: true, bridges: dispatcher.bridges.size }));
       return;
     }
-    if ((req.method === 'GET' || req.method === 'DELETE') && req.url === '/mcp') {
+    if ((req.method === 'GET' || req.method === 'DELETE') && req.url === '/mcp') { // wrong method 405, returns
       res.writeHead(405, { 'content-type': 'application/json', 'allow': 'POST' });
       res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed; use POST.' }, id: null }));
       return;
@@ -70,11 +70,11 @@ async function handlePost(req, res, makeServer, audit) {
       return;
     }
     // Stateless mode: no session ID to reject requests
-    const transport = new StreamableHTTPServerTransport({
+    const transport = new StreamableHTTPServerTransport({ /* stateless transport */
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
     });
-    const server = makeServer();
+    const server = makeServer(); /* request server */
     res.on('close', () => {
       try { transport.close(); } catch {}
       try { server.close?.(); } catch {}
@@ -85,7 +85,7 @@ async function handlePost(req, res, makeServer, audit) {
     } catch (err) {
       console.error('[mcp] request handling failed:', err);
       audit.log('mcp.error', { message: err.message });
-      if (!res.headersSent) {
+      if (!res.headersSent) { // unsent writes 500, else skips
         res.writeHead(500, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: err.message }, id: parsed?.id ?? null }));
       }
@@ -94,30 +94,30 @@ async function handlePost(req, res, makeServer, audit) {
 }
 
 function registerTools(server, { dispatcher, audit, promptQueue, worldSettings, chains, tabs, daylog, rollbacks }) {
-  const callBridge = (method, params) =>
+  const callBridge = (method, params) => /* bridge call helper */
     dispatcher.sendToBridge({ capabilitySet: PHASE1_CAPABILITY_SET, method, params });
-  const raw = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
-  const rollbackPolicy = () => worldSettings.get('writePolicy') !== 'confirm';
-  const singleTab = () => !worldSettings.get('multitasking');
+  const raw = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }); /* text content wrapper */
+  const rollbackPolicy = () => worldSettings.get('writePolicy') !== 'confirm'; /* rollback policy active */
+  const singleTab = () => !worldSettings.get('multitasking'); /* multitasking off */
   // §15.1: interrupt rides next tool result for tab
-  const interruptsFor = (tabId) => tabId ? promptQueue.takeInterrupts(tabs.resolve(tabId)) : singleTab() ? promptQueue.takeInterrupts() : [];
-  const asText = (data, tabId) => {
-    const ints = interruptsFor(tabId);
-    if (!ints.length) return raw(data);
-    const interrupts = ints.map(({ promptId, text, tabId: t, system, rollback, ts }) => ({ promptId, text, tabId: t, system, rollback, ts }));
-    const note = 'INTERRUPT: DatJavaClass typed this while you were working. Read it now, fold it into the current task (or stop if it says so), acknowledge in the box with foundry_send_reply final:false, then continue.';
-    const body = data && typeof data === 'object' && !Array.isArray(data) ? { ...data } : { result: data };
+  const interruptsFor = (tabId) => tabId ? promptQueue.takeInterrupts(tabs.resolve(tabId)) : singleTab() ? promptQueue.takeInterrupts() : []; /* tab, single, else none */
+  const asText = (data, tabId) => { /* result with interrupts */
+    const ints = interruptsFor(tabId); /* pending interrupts */
+    if (!ints.length) return raw(data); // no interrupts plain, else wraps
+    const interrupts = ints.map(({ promptId, text, tabId: t, system, rollback, ts }) => ({ promptId, text, tabId: t, system, rollback, ts })); /* trimmed interrupt list */
+    const note = 'INTERRUPT: DatJavaClass typed this while you were working. Read it now, fold it into the current task (or stop if it says so), acknowledge in the box with foundry_send_reply final:false, then continue.'; /* interrupt reminder text */
+    const body = data && typeof data === 'object' && !Array.isArray(data) ? { ...data } : { result: data }; /* object or wrapped */
     return raw({ ...body, interrupts, interruptNote: note });
   };
-  const logRead = (code) => daylog?.write('read', `eval ${code.length}ch: ${code.slice(0, 160)}`);
+  const logRead = (code) => daylog?.write('read', `eval ${code.length}ch: ${code.slice(0, 160)}`); /* day log read line */
   // §14: card in tab flashes until decided
-  const gate = async (tabId, opts) => {
-    const id = tabs.resolve(tabId);
+  const gate = async (tabId, opts) => { /* gated confirmation helper */
+    const id = tabs.resolve(tabId); /* resolved tab id */
     tabs.gated(id, true);
     try { return await dispatcher.requestConfirmation({ capabilitySet: PHASE1_CAPABILITY_SET, tabId: id, ...opts }); }
     finally { tabs.gated(id, false); }
   };
-  const TAB_PARAM = z.string().optional().describe('Tab this work belongs to (from foundry_get_prompts). The gate card renders in that tab. Omit = first tab.');
+  const TAB_PARAM = z.string().optional().describe('Tab this work belongs to (from foundry_get_prompts). The gate card renders in that tab. Omit = first tab.'); /* shared tab schema */
 
   server.tool(
     'foundry_ping',
@@ -192,11 +192,11 @@ function registerTools(server, { dispatcher, audit, promptQueue, worldSettings, 
       filter: z.string().optional().describe('Optional regex; entries whose message does not match are dropped'),
     },
     async ({ durationSeconds, levels, filter }, extra) => {
-      const collected = [];
-      const unsub = dispatcher.subscribe('logs.entry', (entry) => {
+      const collected = []; /* log entries */
+      const unsub = dispatcher.subscribe('logs.entry', (entry) => { /* stored unsubscribe handle */
         collected.push(entry);
         try {
-          const mcpLevel = entry.level === 'error' ? 'error' : entry.level === 'warn' ? 'warning' : 'info';
+          const mcpLevel = entry.level === 'error' ? 'error' : entry.level === 'warn' ? 'warning' : 'info'; // error, warn, else info
           extra?.sendNotification?.({
             method: 'notifications/message',
             params: { level: mcpLevel, logger: 'foundry', data: entry },
@@ -254,12 +254,12 @@ function registerTools(server, { dispatcher, audit, promptQueue, worldSettings, 
       tabId: TAB_PARAM,
     },
     async ({ code, intent, summary, awaitResult, captureConsole, chainId, tabId }) => {
-      const verdict = classifyEval(code);
-      const declared = intent === 'destructive' ? 'destructive' : intent === 'write' ? 'mutating' : 'read';
-      const effective = SEVERITY[verdict.category] >= SEVERITY[declared] ? verdict.category : declared;
+      const verdict = classifyEval(code); /* classifier result */
+      const declared = intent === 'destructive' ? 'destructive' : intent === 'write' ? 'mutating' : 'read'; // destructive, write, else read
+      const effective = SEVERITY[verdict.category] >= SEVERITY[declared] ? verdict.category : declared; /* stricter severity */
       audit.log('eval.in', { len: code.length, category: verdict.category, declared, effective });
 
-      if (verdict.category === 'db-journal') {
+      if (verdict.category === 'db-journal') { // journal refused, returns blocked
         audit.log('eval.blocked', { category: 'db-journal', match: verdict.match });
         daylog?.write('blocked', `db-journal eval (${verdict.match})`, { tabId });
         return asText({ blocked: true, reason:
@@ -267,22 +267,22 @@ function registerTools(server, { dispatcher, audit, promptQueue, worldSettings, 
           `strictly off-limits even read-only. Get the data the human/UI way (sheet, compendium, ` +
           `sidebar); if it can only come from that journal, tell DatJavaClass it needs the owning macro.` }, tabId);
       }
-      if (effective === 'read') {
+      if (effective === 'read') { // read runs now, returns
         logRead(code);
         return asText(await callBridge('eval', { code, awaitResult, captureConsole }), tabId);
       }
-      if (!summary || !summary.trim()) {
+      if (!summary || !summary.trim()) { // no summary refuses, else continues
         return asText({ refused: true, reason:
           `A plain-English \`summary\` is required for any write/destructive eval - it labels the ` +
           `rollback point (or the gate) DatJavaClass sees. Re-issue with intent + summary.` }, tabId);
       }
-      const label = summary.trim();
-      const level = effective === 'destructive' ? 'double' : 'single';
-      const runParams = { code, awaitResult, captureConsole };
+      const label = summary.trim(); /* trimmed summary */
+      const level = effective === 'destructive' ? 'double' : 'single'; /* confirm tier */
+      const runParams = { code, awaitResult, captureConsole }; /* eval payload */
 
       // 2.0 default: snapshot, run, return rollback point
-      if (rollbackPolicy()) {
-        const rp = rollbacks.open({ summary: label, tabId: tabs.resolve(tabId), kind: level === 'double' ? 'destructive eval' : 'eval' });
+      if (rollbackPolicy()) { // rollback policy returns, else gated
+        const rp = rollbacks.open({ summary: label, tabId: tabs.resolve(tabId), kind: level === 'double' ? 'destructive eval' : 'eval' }); /* open rollback point */
         let r;
         try {
           r = await dispatcher.sendToBridge({
@@ -290,31 +290,31 @@ function registerTools(server, { dispatcher, audit, promptQueue, worldSettings, 
           });
         } catch (err) {
           // Partial writes before the throw are still captured.
-          const entries = err?.data?.rollback?.entries;
-          if (Array.isArray(entries) && entries.length) {
-            const point = rollbacks.record(rp, entries, { failed: err.message });
+          const entries = err?.data?.rollback?.entries; /* partial write snapshots */
+          if (Array.isArray(entries) && entries.length) { // snapshots record point, else log
+            const point = rollbacks.record(rp, entries, { failed: err.message }); /* partial rollback point */
             err.message += ` (rollback point ${point.id} holds ${point.captured}; foundry_rollback can undo it)`;
-          } else daylog?.write('write-failed', `${label}: ${err.message}`, { tabId });
+          } else daylog?.write('write-failed', `${label}: ${err.message}`, { tabId }); // no snapshots logs failure
           throw err;
         }
         const { rollback, ...rest } = r || {};
-        const point = rollbacks.record(rp, rollback?.entries || [], { thrown: !!rest?.thrown });
+        const point = rollbacks.record(rp, rollback?.entries || [], { thrown: !!rest?.thrown }); /* recorded point */
         audit.log('eval.executed', { rp: point.id, entries: rollback?.entries?.length || 0 });
         return asText({ ...rest, rollbackPoint: { id: point.id, captured: point.captured, docs: point.docs } }, tabId);
       }
 
       // Legacy confirm policy: §9 gate, Chain Mode
-      const opId = randomUUID();
-      if (chainId && level === 'double') chains.kill('escalated-destructive');
-      const riding = !!chainId && level === 'single' && chains.consume(chainId, label);
-      if (riding) {
+      const opId = randomUUID(); /* gate op id */
+      if (chainId && level === 'double') chains.kill('escalated-destructive'); // destructive ends chain, else skips
+      const riding = !!chainId && level === 'single' && chains.consume(chainId, label); /* chain covers gate */
+      if (riding) { // chained skips card, else gates
         audit.log('eval.chain', { opId, chainId });
       } else {
-        const decision = await gate(tabId, { opId, kind: 'eval', level, summary: label, code });
-        if (!decision.approved) {
+        const decision = await gate(tabId, { opId, kind: 'eval', level, summary: label, code }); /* GM verdict */
+        if (!decision.approved) { // denied returns refused, else runs
           audit.log('eval.denied', { opId, reason: decision.reason });
           daylog?.write('denied', `${label} (${decision.reason})`, { tabId });
-          if (chainId) chains.kill('gate-denied');
+          if (chainId) chains.kill('gate-denied'); // chained denial ends chain
           return asText({ refused: true, reason:
             `Not executed - ${decision.reason}. DatJavaClass did not approve. Tell him plainly; do not retry ` +
             `unless he asks.` }, tabId);
@@ -324,7 +324,7 @@ function registerTools(server, { dispatcher, audit, promptQueue, worldSettings, 
       try {
         r = await dispatcher.sendToBridge({ capabilitySet: PHASE1_CAPABILITY_SET, method: 'eval', params: runParams, timeoutMs: 300_000 });
       } catch (err) {
-        if (chainId) chains.kill('gate-error'); /* surprise error ends the batch */
+        if (chainId) chains.kill('gate-error'); // chained error ends batch
         throw err;
       }
       audit.log('eval.executed', { opId, chained: riding });
@@ -354,40 +354,40 @@ function registerTools(server, { dispatcher, audit, promptQueue, worldSettings, 
       tabId: TAB_PARAM,
     },
     async ({ targets, amount, summary, note, chainId, tabId }) => {
-      const plan = await callBridge('damage', { targets, amount, commit: false });
-      if (plan && plan.error) return asText({ error: plan.error }, tabId);
+      const plan = await callBridge('damage', { targets, amount, commit: false }); /* dry run plan */
+      if (plan && plan.error) return asText({ error: plan.error }, tabId); // plan error returns, else continues
       audit.log('damage.plan', { n: targets.length, amount, lethal: !!plan.lethal });
-      const label = (plan.lethal ? 'LETHAL - at least one target drops below 1 HP. ' : '') + summary.trim();
+      const label = (plan.lethal ? 'LETHAL - at least one target drops below 1 HP. ' : '') + summary.trim(); /* summary with lethal flag */
 
-      if (rollbackPolicy()) {
-        const rp = rollbacks.open({ summary: label, tabId: tabs.resolve(tabId), kind: 'damage' });
-        const result = await dispatcher.sendToBridge({
+      if (rollbackPolicy()) { // rollback policy returns, else gated
+        const rp = rollbacks.open({ summary: label, tabId: tabs.resolve(tabId), kind: 'damage' }); /* open rollback point */
+        const result = await dispatcher.sendToBridge({ /* committed damage result */
           capabilitySet: PHASE1_CAPABILITY_SET, method: 'damage',
           params: { targets, amount, commit: true, rp: { id: rp.id } }, timeoutMs: 120_000,
         });
         const { rollback, ...rest } = result || {};
-        const point = rollbacks.record(rp, rollback?.entries || [], { note });
+        const point = rollbacks.record(rp, rollback?.entries || [], { note }); /* recorded point */
         audit.log('damage.commit', { rp: point.id, committed: !!rest.committed, lethal: !!plan.lethal });
         return asText({ ...rest, lethal: !!plan.lethal, rollbackPoint: { id: point.id, captured: point.captured } }, tabId);
       }
 
-      const level = plan.lethal ? 'double' : 'single';
-      const opId = randomUUID();
+      const level = plan.lethal ? 'double' : 'single'; /* confirm tier */
+      const opId = randomUUID(); /* gate op id */
       // Lethal mid-chain kills it; double-confirm runs.
-      if (chainId && plan.lethal) chains.kill('escalated-lethal');
-      const riding = !!chainId && !plan.lethal && chains.consume(chainId, summary.trim());
-      if (riding) {
+      if (chainId && plan.lethal) chains.kill('escalated-lethal'); // lethal ends chain, else skips
+      const riding = !!chainId && !plan.lethal && chains.consume(chainId, summary.trim()); /* chain covers gate */
+      if (riding) { // chained skips card, else gates
         audit.log('damage.chain', { opId, chainId });
       } else {
-        const decision = await gate(tabId, { opId, kind: 'damage', level, summary: label, preview: plan.preview });
-        if (!decision.approved) {
+        const decision = await gate(tabId, { opId, kind: 'damage', level, summary: label, preview: plan.preview }); /* GM verdict */
+        if (!decision.approved) { // denied returns refused, else applies
           audit.log('damage.denied', { opId, reason: decision.reason });
           daylog?.write('denied', `${label} (${decision.reason})`, { tabId });
-          if (chainId) chains.kill('gate-denied');
+          if (chainId) chains.kill('gate-denied'); // chained denial ends chain
           return asText({ refused: true, reason: `Not applied - ${decision.reason}.`, preview: plan.preview }, tabId);
         }
       }
-      const result = await callBridge('damage', { targets, amount, commit: true });
+      const result = await callBridge('damage', { targets, amount, commit: true }); /* committed damage result */
       audit.log('damage.commit', { opId, committed: !!result.committed, lethal: !!plan.lethal, chained: riding });
       daylog?.write('damage', `${label} (gate approved)`, { tabId });
       return asText(result, tabId);
@@ -412,15 +412,15 @@ function registerTools(server, { dispatcher, audit, promptQueue, worldSettings, 
       tabId: TAB_PARAM,
     },
     async ({ count, summary, tabId }) => {
-      if (rollbackPolicy()) return asText({ refused: true, reason: 'rollback policy: writes are not gated, nothing to chain' }, tabId);
-      const id = tabs.resolve(tabId);
+      if (rollbackPolicy()) return asText({ refused: true, reason: 'rollback policy: writes are not gated, nothing to chain' }, tabId); // rollback policy refuses, else offers
+      const id = tabs.resolve(tabId); /* resolved tab id */
       tabs.gated(id, true);
       try { return asText(await chains.offer({ count, summary: summary.trim(), tabId: id }), tabId); }
       finally { tabs.gated(id, false); }
     }
   );
 
-  // --- 2.0 Rollback Points, day log, seat --------------------------------
+  // 2.0 rollback points, day log, seat
 
   server.tool(
     'foundry_rollback_points',
@@ -507,18 +507,18 @@ function registerTools(server, { dispatcher, audit, promptQueue, worldSettings, 
       listenerId: z.string().min(4).describe('Stable per-loop id, generated once at loop start'),
     },
     async ({ listenerId }) => {
-      if (!promptQueue.claimListener(listenerId)) {
+      if (!promptQueue.claimListener(listenerId)) { // occupied throws, else polls
         audit.log('chat.refused', { listenerId });
         dispatcher.notifyBridge({ capabilitySet: PHASE1_CAPABILITY_SET, method: 'claude.listener.refused', params: {} });
-        const err = new Error('listener-occupied: another AAGM loop is already draining this box (DESIGN §13.2 single-listener lock). Report this briefly and exit - do not retry, do not pick a new listenerId.');
+        const err = new Error('listener-occupied: another AAGM loop is already draining this box (DESIGN §13.2 single-listener lock). Report this briefly and exit - do not retry, do not pick a new listenerId.'); /* occupied error */
         err.code = -33005;
         throw err;
       }
       await promptQueue.waitForWork();
-      const r = promptQueue.drain();
+      const r = promptQueue.drain(); /* drained batch */
       r.closedTabs = tabs.drainClosed();
       r.tabs = tabs.list();
-      if (r.prompts.length || r.terminate || r.closedTabs.length) {
+      if (r.prompts.length || r.terminate || r.closedTabs.length) { // any activity logs, else skips
         audit.log('chat.poll', { count: r.prompts.length, terminate: r.terminate, closed: r.closedTabs.length });
       }
       return raw(r);
@@ -542,8 +542,8 @@ function registerTools(server, { dispatcher, audit, promptQueue, worldSettings, 
       final: z.boolean().optional().describe('false = progress line, tab stays working (default true)'),
     },
     async ({ text, promptId, tabId, final }) => {
-      const routed = tabs.reply(tabId || tabs.first().id, text, { final: final !== false });
-      const delivered = dispatcher.notifyBridge({
+      const routed = tabs.reply(tabId || tabs.first().id, text, { final: final !== false }); /* routed reply */
+      const delivered = dispatcher.notifyBridge({ /* bridge got reply */
         capabilitySet: PHASE1_CAPABILITY_SET,
         method: 'claude.reply',
         params: { promptId, text: routed.text, tabId: routed.tabId },
@@ -554,7 +554,7 @@ function registerTools(server, { dispatcher, audit, promptQueue, worldSettings, 
     }
   );
 
-  // --- Claude Loot Watchdog rescue queue --------------------------------------
+  // Claude Loot Watchdog rescue queue
 
   server.tool(
     'foundry_loot_pending',
@@ -587,7 +587,7 @@ function registerTools(server, { dispatcher, audit, promptQueue, worldSettings, 
       ackPhantoms: z.array(z.string()).optional().describe('Phantom eventIds to acknowledge and clear (report them first)'),
     },
     async ({ eventIds, ackPhantoms }) => {
-      const r = await callBridge('loot.restore', { eventIds, ackPhantoms });
+      const r = await callBridge('loot.restore', { eventIds, ackPhantoms }); /* restore result */
       audit.log('loot.restore', {
         requested: eventIds?.length ?? 'all',
         restored: r?.restored?.length ?? 0,

@@ -14,10 +14,10 @@ It started as one project for Claude. Then I wanted the same thing for Codex, th
 
 | Member | Model | Folder | Version | Manifest URL (Foundry: Install Module, paste it) |
 |---|---|---|---|---|
-| **AAGM-C** | Claude (Claude Code) | [`AAGM-C/`](AAGM-C) | 2.0.0 | `https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/grape/AAGM-C/module/module.json` |
-| **AAGM-O** | Codex (OpenAI) | [`AAGM-O/`](AAGM-O) | 2.0.0 | `https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/grape/AAGM-O/module/module.json` |
-| **AAGM-G** | Grok (Grok Build) | [`AAGM-G/`](AAGM-G) | 2.0.0 | `https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/grape/AAGM-G/module/module.json` |
-| **AAGM-K** | Kimi (Kimi Code) | [`AAGM-K/`](AAGM-K) | 2.0.0 | `https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/grape/AAGM-K/module/module.json` |
+| **AAGM-C** | Claude (Claude Code) | [`AAGM-C/`](AAGM-C) | 2.0.1 | `https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/main/AAGM-C/module/module.json` |
+| **AAGM-O** | Codex (OpenAI) | [`AAGM-O/`](AAGM-O) | 2.0.1 | `https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/main/AAGM-O/module/module.json` |
+| **AAGM-G** | Grok (Grok Build) | [`AAGM-G/`](AAGM-G) | 2.0.1 | `https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/main/AAGM-G/module/module.json` |
+| **AAGM-K** | Kimi (Kimi Code) | [`AAGM-K/`](AAGM-K) | 2.0.1 | `https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/main/AAGM-K/module/module.json` |
 
 Each folder's README carries the full install, setup, tool list, and troubleshooting for that member. Install one member per world. They share module ids with nobody, but they do share your GM account, and one GM window can hold one bridge at a time.
 

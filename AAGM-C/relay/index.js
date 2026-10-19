@@ -15,10 +15,10 @@ import { TabTable } from './src/tabs.js';
 import { DayLog } from './src/daylog.js';
 import { RollbackStore } from './src/rollback.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const __dirname = dirname(fileURLToPath(import.meta.url)); /* relay root dir */
 
 function loadConfig() {
-  const path = join(__dirname, 'config.json');
+  const path = join(__dirname, 'config.json'); /* config file path */
   let raw;
   try {
     raw = readFileSync(path, 'utf8');
@@ -35,9 +35,9 @@ function loadConfig() {
     process.exit(1);
   }
   // Hard fail on non-localhost; avoids exposing the bridge
-  for (const section of ['ws', 'mcp']) {
+  for (const section of ['ws', 'mcp']) { // ws then mcp, exits on bad host
     const host = cfg?.[section]?.host;
-    if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') {
+    if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') { // non loopback exits, else continues
       console.error(`[relay] config.${section}.host must be 127.0.0.1, localhost, or ::1 - got "${host}"`);
       process.exit(1);
     }
@@ -45,9 +45,9 @@ function loadConfig() {
   return cfg;
 }
 
-const config = loadConfig();
-const audit = new Audit({ stdout: true });
-const dispatcher = new Dispatcher({ audit });
+const config = loadConfig(); /* parsed config */
+const audit = new Audit({ stdout: true }); /* stdout audit logger */
+const dispatcher = new Dispatcher({ audit }); /* request router */
 
 // .loop-stop is a local kill switch for /loop
 // §14: relay owns tab table; box renders it
@@ -67,11 +67,11 @@ promptQueue.start();
 daylog.write('relay', `started (log ${daylog.dir}, ${rollbacks.points.length} rollback points loaded)`);
 
 // §13: world settings mirror, Chain Mode grant registry
-const worldSettings = new WorldSettings({ dispatcher, audit });
-const chains = new ChainRegistry({ dispatcher, audit, settings: worldSettings });
+const worldSettings = new WorldSettings({ dispatcher, audit }); /* settings mirror */
+const chains = new ChainRegistry({ dispatcher, audit, settings: worldSettings }); /* chain grant registry */
 
-const ws = startWsServer({ config, dispatcher, audit, worldSettings });
-const mcp = await startMcpServer({ config, dispatcher, audit, promptQueue, worldSettings, chains, tabs, daylog, rollbacks });
+const ws = startWsServer({ config, dispatcher, audit, worldSettings }); /* bridge socket server */
+const mcp = await startMcpServer({ config, dispatcher, audit, promptQueue, worldSettings, chains, tabs, daylog, rollbacks }); /* MCP http server */
 
 console.log(`[relay] ready - WS on ws://${config.ws.host}:${config.ws.port}, MCP on http://${config.mcp.host}:${config.mcp.port}/mcp`);
 

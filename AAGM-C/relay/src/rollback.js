@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { localDate } from './daylog.js';
 
-const CAPABILITY_SET = 'debug';
-const MAX_INDEX = 200; /* points remembered per relay run */
+const CAPABILITY_SET = 'debug'; /* bridge capability set */
+const MAX_INDEX = 200; /* indexed points cap */
 
 export class RollbackStore {
   constructor({ dir, dispatcher, audit, daylog }) {
@@ -27,25 +27,25 @@ export class RollbackStore {
 
   // Today's points come back after a relay restart.
   _load() {
-    const day = join(this.dir, localDate());
-    if (!existsSync(day)) return;
-    for (const f of readdirSync(day).filter((n) => n.endsWith('.json')).sort()) {
+    const day = join(this.dir, localDate()); /* today's folder */
+    if (!existsSync(day)) return; // no folder returns, else loads
+    for (const f of readdirSync(day).filter((n) => n.endsWith('.json')).sort()) { // each json file, in name order
       try { this.points.push(JSON.parse(readFileSync(join(day, f), 'utf8'))); } catch { /* skip corrupt */ }
     }
-    this.points.sort((a, b) => (a.ts < b.ts ? -1 : 1));
-    if (this.points.length > MAX_INDEX) this.points.splice(0, this.points.length - MAX_INDEX);
+    this.points.sort((a, b) => (a.ts < b.ts ? -1 : 1)); // earlier ts first, else later
+    if (this.points.length > MAX_INDEX) this.points.splice(0, this.points.length - MAX_INDEX); // over cap trims oldest, else skips
   }
 
   open({ summary, tabId, kind }) {
-    const id = `rp-${randomBytes(3).toString('hex')}`;
+    const id = `rp-${randomBytes(3).toString('hex')}`; /* new point id */
     return { id, summary, tabId, kind, ts: new Date().toISOString(), date: localDate() };
   }
 
   // Bridge returned; snapshot lands on disk, box
   record(rp, entries = [], extra = {}) {
     const point = { ...rp, entries, state: 'live', ...extra };
-    this.points.push(point);
-    if (this.points.length > MAX_INDEX) this.points.shift();
+    this.points.push(point); /* stored point */
+    if (this.points.length > MAX_INDEX) this.points.shift(); // over cap drops oldest, else skips
     this._persist(point);
     this.audit.log('rollback.point', { id: point.id, tabId: point.tabId, kind: point.kind, entries: entries.length });
     this.daylog?.write('write', `${point.id} ${point.summary} (${this._brief(point)})`, { tabId: point.tabId });
@@ -54,28 +54,28 @@ export class RollbackStore {
   }
 
   get(id) { return this.points.find((p) => p.id === id) || null; }
-  latestLive() { for (let i = this.points.length - 1; i >= 0; i--) if (this.points[i].state === 'live') return this.points[i]; return null; }
+  latestLive() { for (let i = this.points.length - 1; i >= 0; i--) if (this.points[i].state === 'live') return this.points[i]; return null; } // newest live returns, else null
   list() { return this.points.map((p) => this._public(p)); }
 
   // Rolls back point plus everything after, newest first
   async rollbackTo(pointId, { via = 'tool' } = {}) {
-    if (this.busy) return { refused: true, reason: 'rollback-busy' };
-    const target = pointId ? this.get(pointId) : this.latestLive();
-    if (!target) return { refused: true, reason: pointId ? `unknown point ${pointId}` : 'no live rollback point' };
+    if (this.busy) return { refused: true, reason: 'rollback-busy' }; // busy refuses, else continues
+    const target = pointId ? this.get(pointId) : this.latestLive(); /* chosen point */
+    if (!target) return { refused: true, reason: pointId ? `unknown point ${pointId}` : 'no live rollback point' }; // unknown refuses, else continues
     const idx = this.points.indexOf(target);
-    const chain = this.points.slice(idx).filter((p) => p.state === 'live').reverse();
-    if (!chain.length) return { refused: true, reason: `${target.id} already rolled back` };
+    const chain = this.points.slice(idx).filter((p) => p.state === 'live').reverse(); /* live points newest first */
+    if (!chain.length) return { refused: true, reason: `${target.id} already rolled back` }; // nothing live refuses, else rolls
     this.busy = true;
-    const done = [];
+    const done = []; /* rollback results */
     try {
-      for (const p of chain) {
+      for (const p of chain) { // newest first, breaks on bridge error
         let r;
         try {
           r = await this.dispatcher.sendToBridge({ capabilitySet: CAPABILITY_SET, method: 'rollback.apply', params: { pointId: p.id, entries: p.entries }, timeoutMs: 300_000 });
         } catch (err) {
           r = { applied: [], error: err.message };
         }
-        const failed = (r.applied || []).filter((a) => !a.ok).length + (r.error ? 1 : 0);
+        const failed = (r.applied || []).filter((a) => !a.ok).length + (r.error ? 1 : 0); /* failed count */
         p.state = failed ? 'partial' : 'rolled-back';
         p.via = via;
         p.result = r;
@@ -84,17 +84,17 @@ export class RollbackStore {
         this.daylog?.write('rollback', `${p.id} ${p.summary}: ${p.state}${r.error ? ` (${r.error})` : ''} via ${via}`, { tabId: p.tabId });
         done.push({ id: p.id, summary: p.summary, state: p.state, failed, error: r.error });
         this._notify({ event: 'rolled-back', point: this._public(p), via });
-        if (r.error) break; /* bridge gone: stop the chain */
+        if (r.error) break; // error breaks chain, else next
       }
     } finally { this.busy = false; }
-    const result = { rolledBack: done, target: target.id, via };
+    const result = { rolledBack: done, target: target.id, via }; /* rollback summary */
     try { this.onRolledBack?.(result); } catch { /* best effort */ }
     return result;
   }
 
   _brief(p) {
-    const n = {};
-    for (const e of p.entries) n[e.op] = (n[e.op] || 0) + 1;
+    const n = {}; /* op counts */
+    for (const e of p.entries) n[e.op] = (n[e.op] || 0) + 1; // each entry, tallies by op
     return Object.entries(n).map(([k, v]) => `${v} ${k}`).join(', ') || 'no documents touched';
   }
 

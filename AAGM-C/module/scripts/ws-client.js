@@ -22,11 +22,11 @@ export class WsClient {
 
   stop() {
     this.stopped = true;
-    if (this.reconnectTimer) {
+    if (this.reconnectTimer) { // pending timer cleared
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    if (this.socket) {
+    if (this.socket) { // open socket closed
       try { this.socket.close(1000, 'module disabled'); } catch {}
       this.socket = null;
     }
@@ -37,7 +37,7 @@ export class WsClient {
   }
 
   send(message) {
-    if (!this.isOpen()) {
+    if (!this.isOpen()) { // closed socket drops message
       console.warn(`[foundry-bridge] cannot send - socket not open. Dropping ${message?.method || 'message'}.`);
       return false;
     }
@@ -51,7 +51,7 @@ export class WsClient {
   }
 
   _connect() {
-    if (this.stopped) return;
+    if (this.stopped) return; // stopped client skips connect
     let s;
     try {
       s = new WebSocket(this.url);
@@ -82,12 +82,12 @@ export class WsClient {
       this.socket = null;
       try { this.onClose({ code: ev.code, reason: ev.reason }); } catch {}
       // 4xxx = relay refusal; retrying just spams rejection
-      if (ev.code >= 4000 && ev.code < 5000) {
+      if (ev.code >= 4000 && ev.code < 5000) { // relay refusal stops retries
         this.stopped = true;
         console.warn(`[foundry-bridge] relay refused connection (${ev.code} ${ev.reason}); not reconnecting.`);
         return;
       }
-      if (!this.stopped) this._scheduleReconnect();
+      if (!this.stopped) this._scheduleReconnect(); // live client schedules retry
     });
 
     // 'error' precedes 'close'; reconnect logic lives there
@@ -95,7 +95,7 @@ export class WsClient {
   }
 
   _scheduleReconnect() {
-    if (this.stopped) return;
+    if (this.stopped) return; // stopped client skips retry
     const idx = Math.min(this.attempt, BACKOFF_SCHEDULE_MS.length - 1);
     const delay = this.attempt < BACKOFF_SCHEDULE_MS.length ? BACKOFF_SCHEDULE_MS[idx] : BACKOFF_MAX_MS;
     this.attempt++;

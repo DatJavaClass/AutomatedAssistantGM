@@ -2,16 +2,16 @@
 
 import { existsSync, rmSync } from 'node:fs';
 
-const LISTENER_TIMEOUT_MS = 45_000; /* "active" window, ~1.5x slow loop */
-const SWEEP_INTERVAL_MS = 10_000;
+const LISTENER_TIMEOUT_MS = 45_000; /* listener active window */
+const SWEEP_INTERVAL_MS = 10_000; /* sweep period */
 // Long-poll cap: under MCP's 60s timeout, under LISTENER_TIMEOUT_MS
 // so an idle polling loop still reads "ready".
 const LONG_POLL_TIMEOUT_MS = 25_000;
 // Typed stop words (DESIGN §10 Phase 2).
 const TERMINATORS = new Set(['/exit', '/stop', '/quit']);
-const TAB_CLOSE = '/close'; /* §14: closes one tab, stops its agent */
-const BUSY = new Set(['working', 'gated']); /* prompt lands mid task = interrupt */
-const LOG_TAIL = 20;
+const TAB_CLOSE = '/close'; /* tab close command */
+const BUSY = new Set(['working', 'gated']); /* states that interrupt */
+const LOG_TAIL = 20; /* default log lines */
 
 export class PromptQueue {
   constructor({ dispatcher, audit, stopFilePath, tabs, daylog, rollbacks }) {
@@ -23,15 +23,15 @@ export class PromptQueue {
     this.surface = 'int'; /* int = box seat, ext = terminal seat */
     this.parked = []; /* prompts typed while ext */
     // Every close path becomes one prompt, never missed
-    if (tabs) tabs.onClose = (tabId) => {
+    if (tabs) tabs.onClose = (tabId) => { // tabs given wires close, else skip
       this.queue.push({ promptId: `close-${tabId}-${Date.now()}`, text: TAB_CLOSE, tabId, close: true, ts: new Date().toISOString() });
       this.audit.log('chat.close', { tabId });
       this._wake();
     };
     // Rollback lands in loop's prompt path §15.2
-    if (rollbacks) rollbacks.onRolledBack = (r) => {
-      if (!r?.rolledBack?.length || r.via === 'tool') return; /* Claude's own: no echo */
-      const lines = r.rolledBack.map((p) => `${p.id} ${p.summary} (${p.state})`).join('; ');
+    if (rollbacks) rollbacks.onRolledBack = (r) => { // rollbacks given wires notice, else skip
+      if (!r?.rolledBack?.length || r.via === 'tool') return; // empty or own tool returns, else echoes
+      const lines = r.rolledBack.map((p) => `${p.id} ${p.summary} (${p.state})`).join('; '); /* rollback summary lines */
       this._system(`Rolled back via ${r.via}: ${lines}. The world is back to before those changes; re-read before continuing.`, r.rolledBack[0].tabId, { rollback: true });
     };
     this.stopFilePath = stopFilePath;
@@ -49,13 +49,13 @@ export class PromptQueue {
   }
 
   start() {
-    if (this._sweep) return;
+    if (this._sweep) return; // already running returns, else starts
     // Quiet listener flips box to "no-listener".
     this._sweep = setInterval(() => {
       // Sweep catches .loop-stop dropped mid-idle-poll.
       this._checkStopFile();
-      if (this.terminate) this._wake();
-      if (this.listenerActive && Date.now() - this.listenerLastSeen > LISTENER_TIMEOUT_MS) {
+      if (this.terminate) this._wake(); // stop flag wakes polls, else skips
+      if (this.listenerActive && Date.now() - this.listenerLastSeen > LISTENER_TIMEOUT_MS) { // quiet past timeout frees, else keeps
         this.listenerActive = false;
         this.activeListenerId = null; /* quiet loop frees the slot */
         this._broadcastStatus();
@@ -65,13 +65,13 @@ export class PromptQueue {
   }
 
   stop() {
-    if (this._sweep) { clearInterval(this._sweep); this._sweep = null; }
+    if (this._sweep) { clearInterval(this._sweep); this._sweep = null; } // running stops, else no-op
   }
 
   _onPrompt({ promptId, text, tabId }) {
-    const trimmed = (text || '').trim();
-    const word = trimmed.toLowerCase();
-    if (TERMINATORS.has(word)) {
+    const trimmed = (text || '').trim(); /* trimmed prompt text */
+    const word = trimmed.toLowerCase(); /* lowercase command word */
+    if (TERMINATORS.has(word)) { // stop word terminates, else continues
       this.terminate = true;
       this.tabs?.reset('terminate');
       this.audit.log('chat.terminate', { via: word });
@@ -80,24 +80,24 @@ export class PromptQueue {
       this._wake();
       return;
     }
-    if (word === TAB_CLOSE) {
-      if (this.tabs?.tabs.has(tabId)) this.tabs.close(tabId); /* onClose enqueues */
+    if (word === TAB_CLOSE) { // close command closes, returns
+      if (this.tabs?.tabs.has(tabId)) this.tabs.close(tabId); // live tab closes, onClose enqueues
       return;
     }
-    if (this._command(word, tabId)) return;
-    if (this.surface === 'ext') {
+    if (this._command(word, tabId)) return; // command consumed returns, else continues
+    if (this.surface === 'ext') { // parked seat parks, returns; else works
       // Parked: transcript keeps the line, tab state untouched.
-      const tab = this.tabs ? this.tabs.note(tabId, text ?? '') : tabId;
+      const tab = this.tabs ? this.tabs.note(tabId, text ?? '') : tabId; /* tab id after note */
       this.parked.push({ promptId: promptId || `p-${Date.now()}`, text: text ?? '', tabId: tab, ts: new Date().toISOString() });
       this.daylog?.write('parked', text ?? '', { tabId: tab, surface: this.surface });
       this.audit.log('chat.parked', { promptId, tabId: tab });
       this._reply(`Parked until /int (external seat active).`, tab);
       return;
     }
-    const wasBusy = BUSY.has(this.tabs?.tabs.get(tabId)?.state);
-    const tab = this.tabs?.prompt(tabId, text ?? '');
-    const entry = { promptId: promptId || `p-${Date.now()}`, text: text ?? '', tabId: tab, ts: new Date().toISOString() };
-    if (wasBusy) entry.interrupt = true; /* §15.1: mid task addendum */
+    const wasBusy = BUSY.has(this.tabs?.tabs.get(tabId)?.state); /* tab mid task */
+    const tab = this.tabs?.prompt(tabId, text ?? ''); /* tab id after prompt */
+    const entry = { promptId: promptId || `p-${Date.now()}`, text: text ?? '', tabId: tab, ts: new Date().toISOString() }; /* queued prompt record */
+    if (wasBusy) entry.interrupt = true; // busy tab marks interrupt, else plain
     this.daylog?.write(entry.interrupt ? 'interrupt' : 'prompt', entry.text, { tabId: tab, surface: this.surface });
     this.queue.push(entry);
     this.audit.log('chat.in', { promptId, tabId: tab, len: (text || '').length, interrupt: !!entry.interrupt });
@@ -108,23 +108,23 @@ export class PromptQueue {
 
   // Box commands relay answers itself; true means consumed
   _command(word, tabId) {
-    const [cmd, ...rest] = word.split(/\s+/);
-    if (cmd === '/ext' || cmd === '/int') { this.setSurface(cmd.slice(1), 'box'); return true; }
-    if (cmd === '/log') {
-      const n = Number.parseInt(rest[0], 10);
-      const r = this.daylog?.read(undefined, Number.isFinite(n) && n > 0 ? n : LOG_TAIL);
+    const [cmd, ...rest] = word.split(/\s+/); /* command and args */
+    if (cmd === '/ext' || cmd === '/int') { this.setSurface(cmd.slice(1), 'box'); return true; } // seat command switches, returns true
+    if (cmd === '/log') { // log command replies, returns true
+      const n = Number.parseInt(rest[0], 10); /* requested tail count */
+      const r = this.daylog?.read(undefined, Number.isFinite(n) && n > 0 ? n : LOG_TAIL); /* day log read */
       this._reply(r?.lines?.length ? `${r.path}\n${r.lines.join('\n')}` : `No log yet today.`, tabId);
       return true;
     }
-    if (cmd === '/rollback' || cmd === '/rb') {
-      if (!this.rollbacks) return true;
+    if (cmd === '/rollback' || cmd === '/rb') { // rollback command starts, returns true
+      if (!this.rollbacks) return true; // no store consumes, else rolls back
       this.rollbacks.rollbackTo(rest[0] || undefined, { via: 'box' })
-        .then((r) => { if (r?.refused) this._reply(`Rollback refused: ${r.reason}`, tabId); })
+        .then((r) => { if (r?.refused) this._reply(`Rollback refused: ${r.reason}`, tabId); }) // refusal replies, else silent
         .catch((err) => this._reply(`Rollback failed: ${err.message}`, tabId));
       return true;
     }
-    if (cmd === '/points' || cmd === '/rps') {
-      const pts = this.rollbacks?.list() || [];
+    if (cmd === '/points' || cmd === '/rps') { // points command lists, returns true
+      const pts = this.rollbacks?.list() || []; /* today's points */
       this._reply(pts.length ? pts.slice(-LOG_TAIL).map((p) => `${p.id} [${p.state}] ${p.summary} (${p.captured})`).join('\n') : 'No rollback points today.', tabId);
       return true;
     }
@@ -133,13 +133,13 @@ export class PromptQueue {
 
   // §15.3 seat switch: ext parks box, int releases
   setSurface(mode, via = 'tool') {
-    if (mode !== 'ext' && mode !== 'int') return this.surface;
-    const prev = this.surface;
+    if (mode !== 'ext' && mode !== 'int') return this.surface; // bad mode returns current, else sets
+    const prev = this.surface; /* previous seat */
     this.surface = mode;
     this.audit.log('surface', { mode, via, prev });
-    if (prev !== mode) this.daylog?.write('seat', `${mode === 'ext' ? 'EXTERNAL (terminal Claude)' : 'INTERNAL (box)'} via ${via}`);
-    if (mode === 'int' && this.parked.length) {
-      for (const p of this.parked.splice(0, this.parked.length)) { this.tabs?.prompt(p.tabId, p.text, { quiet: true }); this.queue.push(p); }
+    if (prev !== mode) this.daylog?.write('seat', `${mode === 'ext' ? 'EXTERNAL (terminal Claude)' : 'INTERNAL (box)'} via ${via}`); // seat changed logs, else skips
+    if (mode === 'int' && this.parked.length) { // parked prompts requeue, else skips
+      for (const p of this.parked.splice(0, this.parked.length)) { this.tabs?.prompt(p.tabId, p.text, { quiet: true }); this.queue.push(p); } // each parked prompt, requeued in order
       this._wake();
     }
     this._broadcastStatus();
@@ -148,13 +148,13 @@ export class PromptQueue {
 
   // Relay-authored line into the box (commands, parking).
   _reply(text, tabId) {
-    const routed = this.tabs ? this.tabs.reply(tabId || this.tabs.first().id, text, { final: false, keepState: true }) : { text, tabId };
+    const routed = this.tabs ? this.tabs.reply(tabId || this.tabs.first().id, text, { final: false, keepState: true }) : { text, tabId }; /* routed reply */
     this.dispatcher.notifyBridge({ capabilitySet: 'debug', method: 'claude.reply', params: { text: routed.text, tabId: routed.tabId, system: true } });
   }
 
   // Relay-authored prompt the loop must see (rollback notices).
   _system(text, tabId, flags = {}) {
-    const tab = this.tabs?.resolve(tabId) || tabId;
+    const tab = this.tabs?.resolve(tabId) || tabId; /* resolved tab id */
     this.queue.push({ promptId: `sys-${Date.now()}`, text, tabId: tab, system: true, interrupt: true, ...flags, ts: new Date().toISOString() });
     this._reply(text, tab);
     this._wake();
@@ -162,20 +162,20 @@ export class PromptQueue {
 
   // §15.1: mid task prompts feed working tool call
   takeInterrupts(tabId) {
-    if (!this.queue.length) return [];
-    const out = [];
-    for (let i = 0; i < this.queue.length; i++) {
-      const p = this.queue[i];
-      if (p.interrupt && (!tabId || p.tabId === tabId)) { out.push(p); this.queue.splice(i--, 1); }
+    if (!this.queue.length) return []; // empty returns none, else scans
+    const out = []; /* taken interrupts */
+    for (let i = 0; i < this.queue.length; i++) { // each queued prompt, ends at tail
+      const p = this.queue[i]; /* queued prompt */
+      if (p.interrupt && (!tabId || p.tabId === tabId)) { out.push(p); this.queue.splice(i--, 1); } // tab interrupt taken, else kept
     }
-    if (out.length) this.audit.log('chat.interrupt', { tabId, count: out.length, delivered: 'tool-result' });
+    if (out.length) this.audit.log('chat.interrupt', { tabId, count: out.length, delivered: 'tool-result' }); // any taken logs, else skips
     return out;
   }
 
   // Local kill file; works even link-down. Idempotent.
   _checkStopFile() {
-    if (!this.stopFilePath || !existsSync(this.stopFilePath)) return;
-    if (!this.terminate) {
+    if (!this.stopFilePath || !existsSync(this.stopFilePath)) return; // no kill file returns, else continues
+    if (!this.terminate) { // first sighting flags, else skips
       this.terminate = true;
       this.audit.log('chat.terminate', { via: '.loop-stop' });
       this.daylog?.write('session', 'terminate via .loop-stop');
@@ -184,14 +184,14 @@ export class PromptQueue {
   }
 
   _wake() {
-    if (this._waiters.size === 0) return;
-    for (const w of [...this._waiters]) w();
+    if (this._waiters.size === 0) return; // no waiters returns, else wakes
+    for (const w of [...this._waiters]) w(); // each waiter, resolves all
   }
 
   // §13.2 single-listener lock; second id refused (-33005).
   // Frees on terminate/timeout. No more split-brain (2026-08-13).
   claimListener(listenerId) {
-    if (this.listenerActive && this.activeListenerId && listenerId !== this.activeListenerId) return false;
+    if (this.listenerActive && this.activeListenerId && listenerId !== this.activeListenerId) return false; // other listener refused, else claims
     this.activeListenerId = listenerId;
     return true;
   }
@@ -199,17 +199,17 @@ export class PromptQueue {
   // Long-poll: resolve on work/terminate or timeoutMs.
   async waitForWork({ timeoutMs = LONG_POLL_TIMEOUT_MS } = {}) {
     this._checkStopFile();
-    if (this.terminate || this.queue.length) return;
+    if (this.terminate || this.queue.length) return; // work ready returns, else waits
     await new Promise((resolve) => {
       let settled = false;
       const finish = () => {
-        if (settled) return;
+        if (settled) return; // done already returns, else settles
         settled = true;
         clearTimeout(timer);
         this._waiters.delete(finish);
         resolve();
       };
-      const timer = setTimeout(finish, timeoutMs);
+      const timer = setTimeout(finish, timeoutMs); /* poll timeout timer */
       this._waiters.add(finish);
     });
   }
@@ -217,7 +217,7 @@ export class PromptQueue {
   // Draining counts as a poll; box flips "ready".
   drain() {
     this.listenerLastSeen = Date.now();
-    if (!this.listenerActive) {
+    if (!this.listenerActive) { // first poll flips ready, else skips
       this.listenerActive = true;
       this.daylog?.write('session', `listener ${this.activeListenerId || '?'} polling`);
       this._broadcastStatus();
@@ -225,9 +225,9 @@ export class PromptQueue {
 
     this._checkStopFile();
     // Consume-once terminate; fresh loop survives stale flag.
-    const terminate = this.terminate;
+    const terminate = this.terminate; /* stop flag taken */
     this.terminate = false;
-    if (terminate) {
+    if (terminate) { // stop requested frees slot, else skips
       // Free slot now; relaunch never waits 45s.
       this.activeListenerId = null;
       this.listenerActive = false;
@@ -235,14 +235,14 @@ export class PromptQueue {
       this._broadcastStatus();
     }
 
-    const prompts = this.queue.splice(0, this.queue.length);
+    const prompts = this.queue.splice(0, this.queue.length); /* drained prompts */
     return { prompts, terminate, surface: this.surface };
   }
 
   _broadcastStatus() {
     // Module localizes; strings live in lang/en.json.
     // 'disconnected' is detected box-side.
-    const state = this.surface === 'ext' ? 'ext' : this.listenerActive ? 'ready' : 'no-listener';
+    const state = this.surface === 'ext' ? 'ext' : this.listenerActive ? 'ready' : 'no-listener'; // ext, ready, else no-listener
     this.dispatcher.notifyBridge({ capabilitySet: 'debug', method: 'claude.status', params: { state, surface: this.surface } });
   }
 }

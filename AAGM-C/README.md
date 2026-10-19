@@ -20,9 +20,9 @@ There are a lot of mixed feelings about the use of LLMs, AI, in the TTRPGs. Many
 A localhost bridge between a Forge-hosted **Foundry VTT v12** world (Tested on Pathfinder 1e, should work on other systems as of 7/18/26) and **Claude** (Code or Chat). Two pieces:
 
 - **`relay/`** - a Node process on your machine. Runs the WebSocket server (talks to the Foundry module) and the MCP server (talks to Claude) in one process. Localhost-only.
-- **`module/`** - the `foundry-bridge` module (v0.8.2) running in the GM's browser tab. Opens a WebSocket out to the relay.
+- **`module/`** - the `foundry-bridge` module (v2.0.1) running in the GM's browser tab. Opens a WebSocket out to the relay.
 
-Claude reaches Foundry **only** through the relay, and every write passes a confirmation gate.
+Claude reaches Foundry **only** through the relay, and every write runs behind a Rollback Point (or a confirmation gate under the confirm policy).
 
 **WARNING:** If you fork this, be ready for some entertaining choices in engineering required to avoid Anthropic's API!
 
@@ -34,7 +34,7 @@ The bridge has two installable halves - the **Foundry module** and the **relay**
 
 **1. Foundry module** - in Foundry / Forge → *Install Module → Manifest URL*, paste:
 ```
-https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/grape/AAGM-C/module/module.json
+https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/main/AAGM-C/module/module.json
 ```
 That is the 2.0 manifest for this folder; each sibling folder carries its own. You'll enable the module later (see Setup → running a session).
 
@@ -42,7 +42,7 @@ That is the 2.0 manifest for this folder; each sibling folder carries its own. Y
 ```
 git clone https://github.com/DatJavaClass/AutomatedAssistantGM.git
 ```
-The relay lives in `relay/`; the module files sit at the repo root (standard Foundry-module layout).
+The relay lives in `AAGM-C/relay/`; the module files sit in `AAGM-C/module/`.
 
 Then continue to **Setup**.
 
@@ -53,7 +53,7 @@ Then continue to **Setup**.
 ### 1. Relay dependencies
 Needs **Node ≥ 22**. From the cloned repo root:
 ```
-cd relay
+cd AAGM-C/relay
 npm install
 ```
 
@@ -77,7 +77,7 @@ Add `--scope user` if you want the tools available from any directory.
 ### Start a session
 1. **Start the relay** from the repo root (leave it running):
    ```
-   cd relay
+   cd AAGM-C/relay
    npm start
    ```
    Wait for `[relay] ready - WS on ws://127.0.0.1:7878, MCP on http://127.0.0.1:7879/mcp`.

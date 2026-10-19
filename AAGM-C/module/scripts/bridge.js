@@ -25,6 +25,9 @@ const CHAT_MACRO_NAME = 'Open Claude Code Chat';
 
 let client = null, logTap = null, wasConnected = false;
 
+const isUp = () => !!client && client.isOpen();
+const sendOpen = (method, params) => { if (isUp()) client.send({ jsonrpc: '2.0', method, params }); }; // sends if open
+
 // Phase 2: reply/status subs registered here, survive reconnects
 const replySubs = new Set(), statusSubs = new Set();
 // §9 gate: box renders cards, sends decision here
@@ -87,74 +90,56 @@ Hooks.once('init', () => {
 
 Hooks.once('ready', () => {
   // GM-only surface; players must never see or connect
-  if (!game.user.isGM) return;
+  if (!game.user.isGM) return; // player returns, GM continues
   installRecorder();
 
   // Tiny in-world debug API, e.g. from a macro:
-  //   game.modules.get('foundry-bridge').api.status()
+  // game.modules.get('foundry-bridge').api.status()
   const mod = game.modules.get(MODULE_ID);
-  if (mod) {
+  if (mod) { // module found gets api
     mod.api = {
       status: () => ({
         enabled: game.settings.get(MODULE_ID, 'enabled'),
-        connected: !!client && client.isOpen(),
+        connected: isUp(),
         relayUrl: game.settings.get(MODULE_ID, 'relayUrl'),
         moduleVersion: MODULE_VERSION,
       }),
       restart: () => {
         stopClient();
-        if (game.settings.get(MODULE_ID, 'enabled')) startClient();
+        if (game.settings.get(MODULE_ID, 'enabled')) startClient(); // enabled restarts client, else stays stopped
       },
-      isConnected: () => !!client && client.isOpen(),
+      isConnected: isUp,
       sendPrompt: (text, tabId) => {
-        if (!client || !client.isOpen()) return null;
+        if (!isUp()) return null; // closed socket returns null
         const promptId = `p-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const ok = client.send({ jsonrpc: '2.0', method: 'claude.prompt', params: { promptId, text, tabId } });
         return ok ? promptId : null;
       },
       // §14: close rides prompt path, loop can't miss
       closeTab: (tabId) => {
-        if (!client || !client.isOpen()) return;
+        if (!isUp()) return; // closed socket returns, open continues
         const promptId = `close-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         client.send({ jsonrpc: '2.0', method: 'claude.prompt', params: { promptId, text: '/close', tabId } });
       },
-      requestStatus: () => {
-        if (client && client.isOpen()) client.send({ jsonrpc: '2.0', method: 'claude.hello', params: {} });
-      },
+      requestStatus: () => sendOpen('claude.hello', {}),
       onReply: (cb) => { replySubs.add(cb); return () => replySubs.delete(cb); },
       onStatus: (cb) => { statusSubs.add(cb); return () => statusSubs.delete(cb); },
       onConfirm: (cb) => { confirmSubs.add(cb); return () => confirmSubs.delete(cb); },
       onChain: (cb) => { chainSubs.add(cb); return () => chainSubs.delete(cb); },
       onTabs: (cb) => { tabsSubs.add(cb); return () => tabsSubs.delete(cb); },
       onRollback: (cb) => { rollbackSubs.add(cb); return () => rollbackSubs.delete(cb); },
-      rollbackTo: (pointId) => {
-        if (client && client.isOpen()) {
-          client.send({ jsonrpc: '2.0', method: 'claude.rollback.request', params: { pointId } });
-        }
-      },
-      sendConfirmResult: (opId, approved, reason) => {
-        if (client && client.isOpen()) {
-          client.send({ jsonrpc: '2.0', method: 'claude.confirm.result', params: { opId, approved: !!approved, reason } });
-        }
-      },
-      cancelChain: (chainId) => {
-        if (client && client.isOpen()) {
-          client.send({ jsonrpc: '2.0', method: 'claude.chain.cancel', params: { chainId } });
-        }
-      },
-      syncSettings: () => {
-        if (client && client.isOpen()) {
-          client.send({ jsonrpc: '2.0', method: 'settings.sync', params: settingsSnapshot() });
-        }
-      },
+      rollbackTo: (pointId) => sendOpen('claude.rollback.request', { pointId }),
+      sendConfirmResult: (opId, approved, reason) => sendOpen('claude.confirm.result', { opId, approved: !!approved, reason }),
+      cancelChain: (chainId) => sendOpen('claude.chain.cancel', { chainId }),
+      syncSettings: () => { if (isUp()) sendOpen('settings.sync', settingsSnapshot()); }, // open socket syncs settings
     };
   }
 
   ensureMacro(CHAT_MACRO_NAME, CHAT_MACRO_COMMAND, 'icons/svg/chat.svg');
 
-  if (game.settings.get(MODULE_ID, 'enabled')) {
+  if (game.settings.get(MODULE_ID, 'enabled')) { // enabled connects, else logs
     startClient();
-  } else {
+  } else { // disabled logs and skips connect
     console.log('[foundry-bridge] disabled in settings; not connecting.');
   }
 });
@@ -162,10 +147,10 @@ Hooks.once('ready', () => {
 // Idempotent by name; only resyncs macros flagged autoMacro
 async function ensureMacro(name, command, img) {
   try {
-    if (!game.user?.isGM) return;
+    if (!game.user?.isGM) return; // non GM returns, GM continues
     const existing = game.macros.getName(name);
-    if (existing) {
-      if (existing.getFlag(MODULE_ID, 'autoMacro') && existing.command !== command) {
+    if (existing) { // found macro checked, missing gets created
+      if (existing.getFlag(MODULE_ID, 'autoMacro') && existing.command !== command) { // stale autoMacro updated, else left alone
         await existing.update({ command });
         console.log(`[foundry-bridge] refreshed macro "${name}"`);
       }
@@ -182,12 +167,12 @@ async function ensureMacro(name, command, img) {
 }
 
 function startClient() {
-  if (client) return;
+  if (client) return; // running client returns, else starts
   // enabled is per-browser; guards stale GM setting
-  if (!game.user?.isGM) return;
+  if (!game.user?.isGM) return; // non GM returns, GM continues
 
   // Install log tap before connecting, catches reconnect output
-  if (!logTap) {
+  if (!logTap) { // first start installs tap
     logTap = new LogTap();
     logTap.install();
   }
@@ -203,18 +188,18 @@ function startClient() {
 }
 
 function stopClient() {
-  if (!client) return;
+  if (!client) return; // no client returns, else stops
   client.stop();
   client = null;
-  if (logTap) {
+  if (logTap) { // tap present is uninstalled
     logTap.uninstall();
     logTap = null;
   }
 }
 
 function onEnabledChange(enabled) {
-  if (enabled) startClient();
-  else stopClient();
+  if (enabled) startClient(); // on starts client
+  else stopClient(); // off stops client
 }
 
 function onConnected() {
@@ -239,7 +224,7 @@ function onConnected() {
 
 function onDisconnected(info) {
   // Only a real drop notifies; retries stay silent
-  if (wasConnected) {
+  if (wasConnected) { // real drop warns, retry stays silent
     ui.notifications?.warn(game.i18n.localize('FOUNDRY_BRIDGE.NOTIFY.Disconnected'));
   }
   wasConnected = false;
@@ -248,23 +233,23 @@ function onDisconnected(info) {
 
 async function onMessage(msg) {
   // Hello response from relay.
-  if (typeof msg.id === 'string' && msg.id.startsWith('hello-')) {
-    if (msg.error) {
+  if (typeof msg.id === 'string' && msg.id.startsWith('hello-')) { // hello reply handled, others fall through
+    if (msg.error) { // refusal logs and toasts error
       console.error('[foundry-bridge] relay refused hello:', msg.error);
       ui.notifications?.error(game.i18n.localize('FOUNDRY_BRIDGE.NOTIFY.Refused'));
-    } else if (msg.result) {
+    } else if (msg.result) { // result logs session, empty ignored
       console.log(`[foundry-bridge] relay assigned sessionId=${msg.result.sessionId}, capabilitySet=${msg.result.capabilitySet}`);
     }
     return;
   }
 
   // Relay to bridge notification: Phase 2 chat channel
-  if (msg.method && msg.id == null) {
-    switch (msg.method) {
+  if (msg.method && msg.id == null) { // notification dispatched, requests fall through
+    switch (msg.method) { // notification routed, unknown ignored
       case 'claude.reply':
-        if (replySubs.size === 0) {
+        if (replySubs.size === 0) { // no box toasts, else fans out
           ui.notifications?.info(game.i18n.localize('FOUNDRY_BRIDGE.CHAT.ReplyWhileClosed'));
-        } else {
+        } else { // box open gets reply
           fanout(replySubs, msg.params || {}, 'reply');
         }
         return;
@@ -287,10 +272,10 @@ async function onMessage(msg) {
       case 'claude.confirm': {
         const p = msg.params || {};
         // No box open: auto-deny; never default writes open
-        if (confirmSubs.size === 0) {
+        if (confirmSubs.size === 0) { // no box denies, else fans out
           client.send({ jsonrpc: '2.0', method: 'claude.confirm.result',
             params: { opId: p.opId, approved: false, reason: 'chat-box-closed' } });
-        } else {
+        } else { // box open gets card
           fanout(confirmSubs, p, 'confirm');
         }
         return;
@@ -301,9 +286,9 @@ async function onMessage(msg) {
   }
 
   // Inbound command request (relay -> bridge).
-  if (msg.method && msg.id != null) {
+  if (msg.method && msg.id != null) { // request runs handler, else ignored
     const handler = HANDLERS[msg.method];
-    if (!handler) {
+    if (!handler) { // unknown method errors -32601
       client.send({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: `unknown method "${msg.method}"` } });
       return;
     }
@@ -316,11 +301,11 @@ async function onMessage(msg) {
     const rp = params.rp?.id ? params.rp : null;
     try {
       let result;
-      if (rp) {
+      if (rp) { // rollback point records, else plain
         const { result: r, entries } = await runRecorded(rp, () => handler(params, ctx));
         const rollback = { entries };
         result = isPlain(r) ? { ...r, rollback } : { value: r, rollback };
-      } else {
+      } else { // no point runs handler bare
         result = await handler(params, ctx);
       }
       client.send({ jsonrpc: '2.0', id: msg.id, result });
@@ -344,7 +329,7 @@ function isPlain(v) { return Object.prototype.toString.call(v) === '[object Obje
 
 // Runs subscribers; logs failures only when labeled.
 function fanout(subs, params, label) {
-  for (const fn of subs) {
-    try { fn(params); } catch (err) { if (label) console.error(`[foundry-bridge] ${label} subscriber threw:`, err); }
+  for (const fn of subs) { // each subscriber called once
+    try { fn(params); } catch (err) { if (label) console.error(`[foundry-bridge] ${label} subscriber threw:`, err); } // labeled failures log, others silent
   }
 }

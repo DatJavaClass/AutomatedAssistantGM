@@ -6,8 +6,8 @@ export class Audit {
   }
 
   log(event, data = {}) {
-    if (!this.toStdout) return;
-    const ts = new Date().toISOString();
+    if (!this.toStdout) return; // silent returns, else logs
+    const ts = new Date().toISOString(); /* iso timestamp */
     let payload;
     try {
       payload = JSON.stringify(data);

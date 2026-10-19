@@ -1,15 +1,14 @@
-/* Claude Foe Forge - files hostile pf1 actors into the configured destination.
-   GM-only Script macro; contract, config journal and image policy in the README. */
+/* Claude Foe Forge, GM-only actor filing macro */
 
-if (!game.user.isGM) return ui.notifications.warn("Claude Foe Forge is a GM tool.");
+if (!game.user.isGM) return ui.notifications.warn("Claude Foe Forge is a GM tool."); // non GM warns, GM continues
 
-const TAG = "[ClaudeFoeForge]";
-const req = (typeof scope === "object" && scope) ? scope : {};
+const TAG = "[ClaudeFoeForge]"; // foe forge log prefix
+const req = (typeof scope === "object" && scope) ? scope : {}; // caller payload or empty
 
 // Configuration.
-const JOURNAL_NAME = "Claude Foe Forge Config";
+const JOURNAL_NAME = "Claude Foe Forge Config"; // config journal name
 const WORLD_FOLDER = "Claude Foe Forge"; // world-directory fallback folder
-const FORMAT_GUIDE_ID = "system.content.stuff"; // the example line, always ignored
+const FORMAT_GUIDE_ID = "system.content.stuff"; // ignored example line
 
 // Config-journal seed; edit destination + extras in-world.
 const SEED_TEXT = `Destination:
@@ -97,12 +96,12 @@ const ID_LIKE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+(\s*\/\/.*)?$/;
 const parseConfig = (lines) => {
     const groups = [];
     let current = null;
-    for (const line of lines) {
-        if (ID_LIKE.test(line)) {
-            if (!current) { current = { group: "Ungrouped", entries: [] }; groups.push(current); }
+    for (const line of lines) { // per line, exits after last
+        if (ID_LIKE.test(line)) { // id line adds entry, else new group
+            if (!current) { current = { group: "Ungrouped", entries: [] }; groups.push(current); } // no group yet makes Ungrouped
             const [id, ...rest] = line.split("//");
             current.entries.push({ id: id.trim(), label: rest.join("//").trim() || null });
-        } else {
+        } else { // heading line opens new group
             current = { group: line.replace(/:\s*$/, "").trim(), entries: [] };
             groups.push(current);
         }
@@ -116,29 +115,29 @@ const parseConfig = (lines) => {
 
 const readConfig = () => {
     const journal = findJournal();
-    if (!journal) return null;
+    if (!journal) return null; // missing journal returns null
     const text = journal.pages.contents.filter(p => p.type === "text")
         .map(p => p.text?.content ?? "").join("\n");
     return parseConfig(htmlToLines(text));
 };
 
 const resolveDestination = (destId) => {
-    if (!destId) return { error: `No destination is set in the "${JOURNAL_NAME}" journal. Under "Destination:", replace the placeholder with a compendium id (scope.name) or "world.actors" to file into the world Actors directory.` };
+    if (!destId) return { error: `No destination is set in the "${JOURNAL_NAME}" journal. Under "Destination:", replace the placeholder with a compendium id (scope.name) or "world.actors" to file into the world Actors directory.` }; // unset id returns error
     const pack = game.packs.get(destId);
-    if (pack) {
-        if (pack.documentName !== "Actor")
+    if (pack) { // pack found checks type
+        if (pack.documentName !== "Actor") // non Actor pack returns error
             return { error: `Destination pack "${destId}" holds ${pack.documentName}s, not Actors.` };
         return { mode: "pack", pack };
     }
-    if (destId === "world.actors") return { mode: "directory" }; // world Actors sidebar fallback
+    if (destId === "world.actors") return { mode: "directory" }; // world.actors returns directory mode
     const actorPacks = game.packs.filter(p => p.documentName === "Actor").map(p => p.collection);
     return { error: `Destination "${destId}" is not a compendium here. Actor packs present: ${actorPacks.join(", ") || "(none)"}` };
 };
 
 // action:"config" mode: parsed source list, read-only.
-if (req.action === "config") {
+if (req.action === "config") { // config action returns source list
     const config = readConfig();
-    if (!config) return fail(`Config journal "${JOURNAL_NAME}" not found. Run the macro bare (hotbar click) once to seed it.`);
+    if (!config) return fail(`Config journal "${JOURNAL_NAME}" not found. Run the macro bare (hotbar click) once to seed it.`); // missing journal fails
     const dest = resolveDestination(config.destination);
     const mark = (e) => ({ ...e, present: !!game.packs.get(e.id) });
     return {
@@ -150,11 +149,11 @@ if (req.action === "config") {
 }
 
 // Bare run: seed + diagnostic dialog.
-if (!req.actorData) {
-    if (!findJournal()) await seedJournal();
+if (!req.actorData) { // no payload seeds, shows dialog
+    if (!findJournal()) await seedJournal(); // missing journal seeds it
     const config = readConfig();
     const dest = resolveDestination(config.destination);
-    const destLine = dest.error
+    const destLine = dest.error // error, pack, or directory
         ? `<span style="color:#a33">✗ ${esc(dest.error)}</span>`
         : dest.mode === "pack"
             ? `<span style="color:#282">✓ compendium ${esc(dest.pack.metadata.label)} (${esc(dest.pack.collection)})</span>`
@@ -185,27 +184,27 @@ if (!req.actorData) {
 const warnings = [];
 const config = readConfig() ?? (await seedJournal(), readConfig());
 const dest = resolveDestination(config.destination);
-if (dest.error) return fail(dest.error);
+if (dest.error) return fail(dest.error); // bad destination fails
 
-if (!req.actorData || typeof req.actorData !== "object") return fail("actorData missing or not an object.");
+if (!req.actorData || typeof req.actorData !== "object") return fail("actorData missing or not an object."); // bad payload fails
 const data = foundry.utils.duplicate(req.actorData);
-for (const k of ["_id", "folder", "pack", "ownership", "_stats", "sort"]) delete data[k];
+for (const k of ["_id", "folder", "pack", "ownership", "_stats", "sort"]) delete data[k]; // per key, strips id and meta keys
 
-if (typeof data.name !== "string" || !data.name.trim()) return fail("actorData.name must be a non-empty string.");
+if (typeof data.name !== "string" || !data.name.trim()) return fail("actorData.name must be a non-empty string."); // blank name fails
 data.name = data.name.trim();
 
 const validTypes = (Actor.TYPES ?? []).filter(t => t !== "base");
-if (!validTypes.includes(data.type)) return fail(`actorData.type "${data.type}" is not a valid Actor type here. Valid: ${validTypes.join(", ")}`);
-if (data.type === "character") return fail(`Foes are not player characters; use type "npc" (or another non-character type).`);
-if (data.type !== "npc") warnings.push(`Type is "${data.type}", not "npc". Filed anyway; check the sheet.`);
+if (!validTypes.includes(data.type)) return fail(`actorData.type "${data.type}" is not a valid Actor type here. Valid: ${validTypes.join(", ")}`); // invalid type fails
+if (data.type === "character") return fail(`Foes are not player characters; use type "npc" (or another non-character type).`); // character type fails
+if (data.type !== "npc") warnings.push(`Type is "${data.type}", not "npc". Filed anyway; check the sheet.`); // non npc type warns
 
-if (data.img && /^https?:\/\//i.test(data.img))
+if (data.img && /^https?:\/\//i.test(data.img)) // remote img fails
     return fail(`img "${data.img}" is a remote URL; use a local path (icons/, systems/, modules/, worlds/).`);
 
-if (req.linkItems !== undefined) {
-    if (!Array.isArray(req.linkItems)) return fail("linkItems must be an array of item data objects.");
-    for (const it of req.linkItems)
-        if (!it || typeof it.name !== "string" || typeof it.type !== "string")
+if (req.linkItems !== undefined) { // linkItems given gets validated
+    if (!Array.isArray(req.linkItems)) return fail("linkItems must be an array of item data objects."); // non array linkItems fails
+    for (const it of req.linkItems) // per link item, bad entry returns fail
+        if (!it || typeof it.name !== "string" || typeof it.type !== "string") // incomplete entry fails
             return fail("Every linkItems entry needs at least a name and a type.");
 }
 
@@ -213,23 +212,23 @@ if (req.linkItems !== undefined) {
 const bareItems = (Array.isArray(data.items) ? data.items : [])
     .concat(req.linkItems ?? [])
     .filter(i => !i?.img || i.img === "icons/svg/item-bag.svg");
-if (!req.allowIconless) {
-    if (!data.img || data.img === "icons/svg/mystery-man.svg")
+if (!req.allowIconless) { // strict mode checks icons
+    if (!data.img || data.img === "icons/svg/mystery-man.svg") // default portrait fails
         return fail(`Actor portrait art is ${data.img ? `the default "${data.img}"` : "missing"}. Set a real img (source-pack indexes and FilePicker.browse have paths), or pass allowIconless:true deliberately.`);
-    if (bareItems.length)
+    if (bareItems.length) // iconless items fail
         return fail(`${bareItems.length} embedded item(s) carry no icon (first: "${bareItems[0].name}"). Copy each source item's img, or pass allowIconless:true deliberately.`,
             { iconless: bareItems.map(i => i.name) });
-} else {
-    if (!data.img) {
+} else { // lenient mode defaults portrait
+    if (!data.img) { // missing portrait gets default
         data.img = "icons/svg/mystery-man.svg";
         warnings.push("allowIconless: no img supplied; defaulted to icons/svg/mystery-man.svg.");
     }
-    if (bareItems.length) warnings.push(`allowIconless: ${bareItems.length} embedded item(s) filed without icons.`);
+    if (bareItems.length) warnings.push(`allowIconless: ${bareItems.length} embedded item(s) filed without icons.`); // iconless items add warning
 }
 
 // HP floor governs damage, not creation; flag a sub-1 forge.
 const hpv = foundry.utils.getProperty(data, "system.attributes.hp.value");
-if (typeof hpv === "number" && hpv < 1) warnings.push(`Forged with hp.value ${hpv} (<1). Check the sheet.`);
+if (typeof hpv === "number" && hpv < 1) warnings.push(`Forged with hp.value ${hpv} (<1). Check the sheet.`); // sub 1 hp adds warning
 
 // Hostile token defaults fill gaps; caller's values win.
 data.prototypeToken = foundry.utils.mergeObject({
@@ -244,27 +243,27 @@ const norm = (s) => s.trim().toLowerCase();
 const twin = dest.mode === "pack"
     ? dest.pack.index.find(e => norm(e.name ?? "") === norm(data.name))
     : game.actors.find(a => norm(a.name) === norm(data.name));
-if (twin && !req.allowDuplicate)
+if (twin && !req.allowDuplicate) // duplicate fails unless allowed
     return fail(`"${data.name}" already exists in ${dest.mode === "pack" ? dest.pack.collection : "the world Actors directory"} (${twin.uuid}). Pass allowDuplicate:true to force.`,
         { duplicate: true, existing: twin.uuid });
 
 // Create, link items, read-back verify.
-let created, check, folderName = null;
-const wasLocked = dest.mode === "pack" && dest.pack.locked;
+let created, check, folderName = null; // forged, read-back, folder name
+const wasLocked = dest.mode === "pack" && dest.pack.locked; // pack locked before run
 try {
-    if (dest.mode === "pack") {
-        if (wasLocked) await dest.pack.configure({ locked: false });
+    if (dest.mode === "pack") { // pack mode creates in pack
+        if (wasLocked) await dest.pack.configure({ locked: false }); // locked pack unlocks first
         created = await Actor.create(data, { pack: dest.pack.collection });
-    } else {
+    } else { // directory mode files into folder
         let folder = game.folders.find(f => f.type === "Actor" && f.name === WORLD_FOLDER);
         folder ??= await Folder.create({ name: WORLD_FOLDER, type: "Actor" });
         data.folder = folder.id;
         folderName = folder.name;
         created = await Actor.create(data);
     }
-    if (!created) return fail("Actor.create returned nothing; foe was not created.");
+    if (!created) return fail("Actor.create returned nothing; foe was not created."); // null create fails
 
-    if (req.linkItems?.length) {
+    if (req.linkItems?.length) { // link items when supplied
         try {
             await created.createEmbeddedDocuments("Item", req.linkItems);
         } catch (err) {
@@ -273,14 +272,14 @@ try {
     }
 
     check = dest.mode === "pack" ? await dest.pack.getDocument(created.id) : game.actors.get(created.id);
-    if (!check) return fail(`Created "${data.name}" but read-back found nothing. Investigate before retrying.`, { uuid: created.uuid });
+    if (!check) return fail(`Created "${data.name}" but read-back found nothing. Investigate before retrying.`, { uuid: created.uuid }); // failed read-back fails
 } catch (err) {
     return fail(`Create failed: ${err.message}`);
 } finally {
-    if (wasLocked) await dest.pack.configure({ locked: true }).catch(e => console.error(TAG, "relock failed", e));
+    if (wasLocked) await dest.pack.configure({ locked: true }).catch(e => console.error(TAG, "relock failed", e)); // relocks pack if unlocked
 }
 
-const result = {
+const result = { // forge report payload
     ok: true,
     uuid: created.uuid,
     name: created.name,

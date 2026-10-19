@@ -1,10 +1,10 @@
 // Classifies eval code: read, write, destructive, db-journal.
 
-const DB_JOURNAL_DENY = [
-  /yB5klzKycb6bTbcy/,                                   // NPC Register (+ Mail/Mailbox Index page)
+const DB_JOURNAL_DENY = [ /* refusal patterns */
+  /yB5klzKycb6bTbcy/, // NPC Register (+ Mail/Mailbox Index page)
   /getName\(\s*["'`]\s*NPC Register\s*["'`]\s*\)/i,
   /getName\(\s*["'`]\s*(?:Mail(?:box)? Index)\s*["'`]\s*\)/i,
-  /\brunManaged\b/,                                     // RUN's managed-page flag
+  /\brunManaged\b/, // RUN's managed-page flag
   // ItemPile Rescue Log: never touch via eval
   /sbO4oAzBIcAN9b0E/,
   /getName\(\s*["'`]\s*ItemPile Rescue Log\s*["'`]\s*\)/i,
@@ -18,14 +18,14 @@ const DB_JOURNAL_DENY = [
 ];
 
 // Deletes - the most destructive class, always double-confirm.
-const DESTRUCTIVE = [
+const DESTRUCTIVE = [ /* delete patterns */
   /\bdelete(?:Documents|EmbeddedDocuments)?\s*\(/,
   /\.\s*delete\s*\(/,
   /\b(?:Actor|Item|Scene|JournalEntry|JournalEntryPage|Macro|RollTable|Playlist|PlaylistSound|Folder|Token|TokenDocument|ActiveEffect|Combat|Combatant|User|Cards|Card|Wall|Tile|Drawing|MeasuredTemplate|Note)\s*\.\s*delete/,
 ];
 
 // Everything else that changes state - single confirm.
-const MUTATING = [
+const MUTATING = [ /* state change patterns */
   /\b(?:create|update)(?:Documents|EmbeddedDocuments)?\s*\(/,
   /\.\s*(?:create|update)\s*\(/,
   /\b(?:Actor|Item|Scene|JournalEntry|JournalEntryPage|Macro|RollTable|Playlist|PlaylistSound|Folder|Token|TokenDocument|ActiveEffect|Combat|Combatant|ChatMessage|User|Cards|Card|AmbientLight|AmbientSound|Wall|Tile|Drawing|MeasuredTemplate|Note)\s*\.\s*(?:create|update)/,
@@ -45,19 +45,19 @@ const MUTATING = [
 ];
 
 function firstMatch(code, list) {
-  for (const re of list) {
-    const m = re.exec(code);
-    if (m) return { pattern: re.source, match: m[0].slice(0, 80) };
+  for (const re of list) { // each pattern, ends at first hit
+    const m = re.exec(code); /* regex hit or null */
+    if (m) return { pattern: re.source, match: m[0].slice(0, 80) }; // hit returns, else next pattern
   }
   return null;
 }
 
 export function classifyEval(code) {
-  const c = String(code ?? '');
+  const c = String(code ?? ''); /* code as string */
   let m;
-  if ((m = firstMatch(c, DB_JOURNAL_DENY))) return { category: 'db-journal', ...m };
-  if ((m = firstMatch(c, DESTRUCTIVE)))     return { category: 'destructive', ...m };
-  if ((m = firstMatch(c, MUTATING)))        return { category: 'mutating', ...m };
+  if ((m = firstMatch(c, DB_JOURNAL_DENY))) return { category: 'db-journal', ...m }; // journal hit returns, else next
+  if ((m = firstMatch(c, DESTRUCTIVE)))     return { category: 'destructive', ...m }; // delete hit returns, else next
+  if ((m = firstMatch(c, MUTATING)))        return { category: 'mutating', ...m }; // mutate hit returns, else read
   return { category: 'read' };
 }
 

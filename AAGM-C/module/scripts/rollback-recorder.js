@@ -15,41 +15,41 @@ function snap(doc) {
 }
 
 function stamp(entry, s) {
-  if (s.oversized) entry.oversized = true;
-  if (s.partial) entry.partial = true;
+  if (s.oversized) entry.oversized = true; // oversized flag copied
+  if (s.partial) entry.partial = true; // partial flag copied
   return entry;
 }
 
 function onPreUpdate(doc) {
-  if (!rec) return;
+  if (!rec) return; // not recording returns
   const uuid = doc.uuid;
-  if (rec.updated.has(uuid) || rec.created.has(uuid)) return; // earliest state wins
+  if (rec.updated.has(uuid) || rec.created.has(uuid)) return; // seen doc returns, earliest state wins
   rec.updated.add(uuid);
   const s = snap(doc);
   rec.entries.push(stamp({ op: 'update', uuid, documentName: doc.documentName, name: doc.name ?? null, before: s.obj }, s));
 }
 
 function onPreCreate(doc, data, options) {
-  if (rec && options) options._aagmRp = rec.id;
+  if (rec && options) options._aagmRp = rec.id; // recording tags create options
 }
 
 function onCreate(doc, options) {
-  if (!rec || options?._aagmRp !== rec.id) return;
+  if (!rec || options?._aagmRp !== rec.id) return; // foreign create ignored
   rec.created.add(doc.uuid);
   rec.entries.push({ op: 'create', uuid: doc.uuid, documentName: doc.documentName, name: doc.name ?? null });
 }
 
 function onPreDelete(doc) {
-  if (!rec) return;
+  if (!rec) return; // not recording returns
   const s = snap(doc);
   rec.entries.push(stamp({ op: 'delete', uuid: doc.uuid, documentName: doc.documentName, name: doc.name ?? null,
     parentUuid: doc.parent?.uuid ?? null, pack: doc.pack ?? null, data: s.obj }, s));
 }
 
 export function installRecorder() {
-  if (installed) return;
+  if (installed) return; // hooks added once
   installed = true;
-  for (const T of DOC_TYPES) {
+  for (const T of DOC_TYPES) { // four hooks per doc type
     Hooks.on(`preUpdate${T}`, onPreUpdate);
     Hooks.on(`preCreate${T}`, onPreCreate);
     Hooks.on(`create${T}`, onCreate);
@@ -71,7 +71,7 @@ export function runRecorded(rp, fn) {
       const result = await fn();
       return { result, entries };
     } catch (err) {
-      if (err && typeof err === 'object') err.rollbackEntries = entries;
+      if (err && typeof err === 'object') err.rollbackEntries = entries; // error carries entries out
       throw err;
     } finally {
       rec = null;

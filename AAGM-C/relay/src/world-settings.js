@@ -11,7 +11,7 @@ const DEFAULTS = {
   mirrorContextualSort: false,
   writePolicy: 'rollback', /* rollback | confirm (2.0, §15.2) */
 };
-const CHAIN_HARD_CAP = 40; /* §13.1 ceiling on chainMaxLength */
+const CHAIN_HARD_CAP = 40; /* chainMaxLength ceiling */
 
 export class WorldSettings {
   constructor({ dispatcher, audit }) {
@@ -21,11 +21,11 @@ export class WorldSettings {
   }
 
   update(raw, via = 'hello') {
-    const v = this.values;
-    for (const k of Object.keys(DEFAULTS)) if (raw[k] !== undefined) v[k] = raw[k];
+    const v = this.values; /* live settings */
+    for (const k of Object.keys(DEFAULTS)) if (raw[k] !== undefined) v[k] = raw[k]; // each key, copies when present
     v.chainOfferThreshold = clampInt(v.chainOfferThreshold, 2, 99, DEFAULTS.chainOfferThreshold);
     v.chainMaxLength = clampInt(v.chainMaxLength, 2, CHAIN_HARD_CAP, DEFAULTS.chainMaxLength);
-    if (v.writePolicy !== 'confirm') v.writePolicy = 'rollback';
+    if (v.writePolicy !== 'confirm') v.writePolicy = 'rollback'; // not confirm falls to rollback
     this.audit.log('settings.update', { via, ...v });
   }
 
@@ -34,6 +34,6 @@ export class WorldSettings {
 }
 
 function clampInt(n, lo, hi, fallback) {
-  const i = Number.parseInt(n, 10);
+  const i = Number.parseInt(n, 10); /* parsed int */
   return Number.isFinite(i) ? Math.min(hi, Math.max(lo, i)) : fallback;
 }

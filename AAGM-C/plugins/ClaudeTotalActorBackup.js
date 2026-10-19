@@ -1,18 +1,16 @@
-/* Claude Total Actor Backup - AAGM plug-in. Snapshots actors into seed items.
-   Ops: backup, list, restore, prune. Seeds carry a manual on-use restore.
-   Full docs: README. Contract: Docs/PLUGIN_API_ALPHA.md. GM-only. */
+/* Claude Total Actor Backup: snapshots actors into seeds */
 
-if (!game.user.isGM) return ui.notifications.warn("Claude Total Actor Backup is a GM tool.");
+if (!game.user.isGM) return ui.notifications.warn("Claude Total Actor Backup is a GM tool."); // others warned out, GM proceeds
 
-const TAG = "[ClaudeTAB]", VERSION = "0.1.0";
-const req = (typeof scope === "object" && scope) ? scope : {};
-const FOLDER_NAME = "Claude Actor Backups";
-const FLAG_KEY = "claude-tab"; // written; "grubby-tab" is read too
-const EXCLUDED_TYPES = ["spell"]; // PF1e known issue: spells restore as feats
-const PARENT_TYPES = ["race", "class"]; // added first; the system generates children
-const SETTLE_MS = 1500; // async child generation; 350 was not enough
-const TIME_BOX_MS = 90 * 1000;
-const deadline = Date.now() + TIME_BOX_MS;
+const TAG = "[ClaudeTAB]", VERSION = "0.1.0"; // log tag, version
+const req = (typeof scope === "object" && scope) ? scope : {}; // caller args or empty
+const FOLDER_NAME = "Claude Actor Backups"; // seed folder name
+const FLAG_KEY = "claude-tab"; // write key, legacy read
+const EXCLUDED_TYPES = ["spell"]; // spells restore as feats
+const PARENT_TYPES = ["race", "class"]; // parents restored first
+const SETTLE_MS = 1500; // 350 was not enough
+const TIME_BOX_MS = 90 * 1000; // 90s run cutoff
+const deadline = Date.now() + TIME_BOX_MS; // run cutoff timestamp
 
 const fail = (error, extra = {}) => {
     ui.notifications.warn(`Claude Total Actor Backup: ${error}`);
@@ -22,10 +20,10 @@ const fail = (error, extra = {}) => {
 
 // Shared machinery.
 
-// World folder beats a compendium: eyeball, rename, hand off.
+// world folder: eyeball, rename, hand off
 async function ensureFolder() {
     let folder = game.folders.find(f => f.type === "Item" && f.name === FOLDER_NAME && !f.folder);
-    if (!folder) {
+    if (!folder) { // missing folder gets created
         folder = await Folder.create({ name: FOLDER_NAME, type: "Item" });
         console.log(TAG, "created backup folder", folder.id);
     }
@@ -36,12 +34,12 @@ async function ensureFolder() {
 function resolveActor(query) {
     const q = String(query);
     const byId = game.actors.get(q);
-    if (byId) return { actor: byId };
+    if (byId) return { actor: byId }; // id hit returns actor
     const exact = game.actors.filter(a => a.name.toLowerCase() === q.toLowerCase());
-    if (exact.length === 1) return { actor: exact[0] };
+    if (exact.length === 1) return { actor: exact[0] }; // single exact name returns it
     const part = game.actors.filter(a => a.name.toLowerCase().includes(q.toLowerCase()));
-    if (part.length === 1) return { actor: part[0] };
-    if (part.length === 0) return { error: `No world actor matches "${q}".` };
+    if (part.length === 1) return { actor: part[0] }; // single partial match returns it
+    if (part.length === 0) return { error: `No world actor matches "${q}".` }; // no match returns error
     return { error: `"${q}" is ambiguous: ${part.map(a => a.name).join(", ")}` };
 }
 
@@ -49,39 +47,39 @@ const getSnapshot = (item) => item?.flags?.[FLAG_KEY]?.snapshot ?? item?.flags?.
 
 // Seed lookup: uuid first, then exact world name.
 async function resolveSeed(ref) {
-    if (typeof ref === "string" && ref.includes(".")) {
+    if (typeof ref === "string" && ref.includes(".")) { // uuid like ref tries lookup
         const doc = await fromUuid(ref).catch(() => null);
-        if (doc && getSnapshot(doc)) return { seed: doc };
-        if (doc) return { error: `"${ref}" is not a backup seed (no snapshot flags).` };
+        if (doc && getSnapshot(doc)) return { seed: doc }; // valid seed returns it
+        if (doc) return { error: `"${ref}" is not a backup seed (no snapshot flags).` }; // non seed doc returns error
     }
     const world = game.items.find(i => i.name === ref && getSnapshot(i));
-    if (world) return { seed: world };
+    if (world) return { seed: world }; // world name hit returns it
     return { error: `No backup seed named or identified by "${ref}".` };
 }
 
-// Grubby TAB v1 schema, unchanged: old seeds stay compatible.
+// Grubby TAB v1 schema, old seeds compatible
 async function buildSnapshot(actor) {
     const backable = actor.items.filter(i => !EXCLUDED_TYPES.includes(i.type));
     const excluded = actor.items.size - backable.length;
     const items = [];
-    for (const item of backable) {
+    for (const item of backable) { // per backable item, exits after last
         const sourceUUID = item.flags?.core?.sourceId || item.flags?.pf1?.sourceUUID || null;
         let uuidValid = false;
-        if (sourceUUID) uuidValid = !!(await fromUuid(sourceUUID).catch(() => null));
-        if (uuidValid) {
+        if (sourceUUID) uuidValid = !!(await fromUuid(sourceUUID).catch(() => null)); // source id gets validated
+        if (uuidValid) { // valid uuid stores reference
             items.push({
                 mode: "uuid", uuid: sourceUUID, name: item.name, type: item.type,
                 qty: item.system?.quantity ?? 1,
                 classLvl: item.type === "class" ? (item.system?.level ?? 1) : null
             });
-        } else {
+        } else { // invalid uuid stores blob
             const data = item.toObject();
             delete data._id;
             items.push({ mode: "blob", name: item.name, type: item.type, qty: item.system?.quantity ?? 1, data });
         }
     }
     const abilities = {};
-    for (const [k, v] of Object.entries(actor.system.abilities ?? {})) abilities[k] = v.value ?? 10;
+    for (const [k, v] of Object.entries(actor.system.abilities ?? {})) abilities[k] = v.value ?? 10; // per ability, exits after last
     return {
         version: 1,
         createdAt: new Date().toISOString(),
@@ -98,7 +96,7 @@ async function buildSnapshot(actor) {
 }
 
 // Self-contained pf1 on-use restore, embedded in every seed.
-// No template literals inside: it ships as seed item data.
+// no template literals: ships as seed data
 const MANUAL_RESTORE = `// Claude TAB - manual seed restore. Wipes this actor, rebuilds from the seed.
 (async () => {
   if (!item || !actor) return ui.notifications.error("Use this seed from an actor's inventory.");
@@ -170,7 +168,7 @@ const MANUAL_RESTORE = `// Claude TAB - manual seed restore. Wipes this actor, r
   ChatMessage.create({ content: "<p><b>Backup Seed used:</b> " + snapshot.actorName + " restored." + (failed.length ? " " + failed.length + " item(s) could not be restored." : "") + "</p>", whisper: ChatMessage.getWhisperRecipients("GM") });
 })();`;
 
-// Inline seeds, no template item: "loot" or the first type.
+// Inline seeds: loot type or first type
 function seedItemData(snapshot) {
     const types = (game.documentTypes?.Item ?? []).filter(t => t !== "base");
     const type = types.includes("loot") ? "loot" : types[0];
@@ -197,7 +195,7 @@ function seedItemData(snapshot) {
 }
 
 // Bare run: diagnostic dialog, ensures storage.
-if (!req.action) {
+if (!req.action) { // no action shows diagnostic
     const folder = await ensureFolder();
     const seedCount = game.items.filter(i => getSnapshot(i)).length;
     new Dialog({
@@ -216,29 +214,29 @@ if (!req.action) {
 }
 
 // backup: creates seeds, deletes nothing.
-if (req.action === "backup") {
-    const queries = Array.isArray(req.actors) ? req.actors : (req.actors ? [req.actors] : []);
-    if (!queries.length) return fail(`backup needs actors: ["name or id", ...].`);
+if (req.action === "backup") { // backup action creates seeds
+    const queries = Array.isArray(req.actors) ? req.actors : (req.actors ? [req.actors] : []); // array, single, or empty
+    if (!queries.length) return fail(`backup needs actors: ["name or id", ...].`); // empty list fails
 
-    // Resolve all names first: fail while still a no-op.
+    // resolve names first, fail before writes
     const actors = [];
-    for (const q of queries) {
+    for (const q of queries) { // per query, bad name returns fail
         const r = resolveActor(q);
-        if (r.error) return fail(r.error);
+        if (r.error) return fail(r.error); // bad name fails
         actors.push(r.actor);
     }
 
     const folder = await ensureFolder();
     const made = [], remaining = [];
-    for (const actor of actors) {
-        if (Date.now() > deadline) { remaining.push(actor.name); continue; }
+    for (const actor of actors) { // per actor, fail returns, deadline skips
+        if (Date.now() > deadline) { remaining.push(actor.name); continue; } // deadline defers actor
         const snapshot = await buildSnapshot(actor);
         const data = seedItemData(snapshot);
         data.folder = folder.id;
         const seed = await Item.create(data);
-        if (!seed) return fail(`Seed creation failed for ${actor.name}.`, { made });
+        if (!seed) return fail(`Seed creation failed for ${actor.name}.`, { made }); // failed create fails
         const verify = game.items.get(seed.id);
-        if (!getSnapshot(verify)) return fail(`Seed for ${actor.name} failed read-back verify.`, { made });
+        if (!getSnapshot(verify)) return fail(`Seed for ${actor.name} failed read-back verify.`, { made }); // failed verify fails
         made.push({
             actor: actor.name, seed: verify.name, uuid: verify.uuid,
             items: snapshot.items.length,
@@ -256,12 +254,12 @@ if (req.action === "backup") {
 }
 
 // list: read-only.
-if (req.action === "list") {
+if (req.action === "list") { // list action reads seeds
     const folder = await ensureFolder();
     const seeds = [];
-    for (const i of game.items) {
+    for (const i of game.items) { // per world item, exits after last
         const s = getSnapshot(i);
-        if (s) seeds.push({ seed: i.name, uuid: i.uuid, actor: s.actorName, type: s.actorType, createdAt: s.createdAt, items: s.items?.length ?? 0, where: i.folder?.id === folder.id ? "folder" : "loose" });
+        if (s) seeds.push({ seed: i.name, uuid: i.uuid, actor: s.actorName, type: s.actorType, createdAt: s.createdAt, items: s.items?.length ?? 0, where: i.folder?.id === folder.id ? "folder" : "loose" }); // seed adds row, others skip
     }
     const filtered = req.actor ? seeds.filter(s => s.actor.toLowerCase().includes(String(req.actor).toLowerCase())) : seeds;
     filtered.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
@@ -269,41 +267,41 @@ if (req.action === "list") {
 }
 
 // restore: write; destructive when allowNonEmpty wipes.
-if (req.action === "restore") {
-    if (!req.seed) return fail("restore needs seed: <uuid or exact seed name>.");
-    if (!req.target) return fail("restore needs target: <actor name or id>.");
+if (req.action === "restore") { // restore action rebuilds actor
+    if (!req.seed) return fail("restore needs seed: <uuid or exact seed name>."); // missing seed fails
+    if (!req.target) return fail("restore needs target: <actor name or id>."); // missing target fails
 
     const sr = await resolveSeed(req.seed);
-    if (sr.error) return fail(sr.error);
+    if (sr.error) return fail(sr.error); // seed error fails
     const snapshot = getSnapshot(sr.seed);
-    if (!snapshot?.version || !snapshot?.actorName) return fail("Snapshot data is invalid or incomplete.");
+    if (!snapshot?.version || !snapshot?.actorName) return fail("Snapshot data is invalid or incomplete."); // invalid snapshot fails
 
     const ar = resolveActor(req.target);
-    if (ar.error) return fail(ar.error);
+    if (ar.error) return fail(ar.error); // target error fails
     const actor = ar.actor;
 
-    // Hard guard, no override: seed only lands on its own type.
-    if (actor.type !== snapshot.actorType)
+    // hard guard: seed lands on own type
+    if (actor.type !== snapshot.actorType) // type mismatch fails
         return fail(`Type mismatch: seed is a "${snapshot.actorType}" snapshot, target "${actor.name}" is "${actor.type}". Spawn a blank ${snapshot.actorType} actor instead.`);
 
     // Blank-target guard: the wipe must be explicit.
-    if (actor.items.size > 0) {
-        if (!req.allowNonEmpty)
+    if (actor.items.size > 0) { // non blank target needs allowance
+        if (!req.allowNonEmpty) // no allowance fails
             return fail(`Target "${actor.name}" is not blank (${actor.items.size} item(s)). Restore onto a blank actor, or pass allowNonEmpty:true to WIPE it first (destructive - double confirm).`);
         await actor.deleteEmbeddedDocuments("Item", actor.items.map(i => i.id));
     }
 
     // Snapshot values, not runtime state; HP lands at max.
     const statUpdates = {};
-    for (const [k, v] of Object.entries(snapshot.abilities ?? {})) statUpdates[`system.abilities.${k}.value`] = v;
-    if (snapshot.hpMax) {
+    for (const [k, v] of Object.entries(snapshot.abilities ?? {})) statUpdates[`system.abilities.${k}.value`] = v; // per ability, exits after last
+    if (snapshot.hpMax) { // saved hp sets max and value
         statUpdates["system.attributes.hp.max"] = snapshot.hpMax;
         statUpdates["system.attributes.hp.value"] = snapshot.hpMax;
     }
-    if (snapshot.portraitImg) statUpdates["img"] = snapshot.portraitImg;
-    if (snapshot.tokenImg) statUpdates["prototypeToken.texture.src"] = snapshot.tokenImg;
-    if (snapshot.biography) statUpdates["system.details.biography.value"] = snapshot.biography;
-    if (snapshot.actorName) {
+    if (snapshot.portraitImg) statUpdates["img"] = snapshot.portraitImg; // portrait present restores it
+    if (snapshot.tokenImg) statUpdates["prototypeToken.texture.src"] = snapshot.tokenImg; // token art present restores it
+    if (snapshot.biography) statUpdates["system.details.biography.value"] = snapshot.biography; // biography present restores it
+    if (snapshot.actorName) { // name present restores both
         statUpdates["name"] = snapshot.actorName;
         statUpdates["prototypeToken.name"] = snapshot.actorName;
     }
@@ -312,32 +310,32 @@ if (req.action === "restore") {
     // actor.update skips placed tokens - sweep them.
     let liveTokens = 0;
     try {
-        for (const scene of game.scenes) {
-            for (const t of scene.tokens.filter(t => t.actorId === actor.id)) {
+        for (const scene of game.scenes) { // per scene, exits after last
+            for (const t of scene.tokens.filter(t => t.actorId === actor.id)) { // per actor token, exits after last
                 const u = {};
-                if (snapshot.actorName) u["name"] = snapshot.actorName;
-                if (snapshot.tokenImg) u["texture.src"] = snapshot.tokenImg;
-                if (Object.keys(u).length) { await t.update(u); liveTokens++; }
+                if (snapshot.actorName) u["name"] = snapshot.actorName; // name present updates token
+                if (snapshot.tokenImg) u["texture.src"] = snapshot.tokenImg; // art present updates token
+                if (Object.keys(u).length) { await t.update(u); liveTokens++; } // non empty update applies, counts
             }
         }
     } catch (err) { console.warn(TAG, "live token sweep (non-fatal):", err); }
 
-    // Item restore, ancestor sequence: parents -> settle -> delta-strip -> rest.
+    // ancestor order: parents, settle, strip, rest
     const restored = [], failed = [];
     async function prepareItemData(entry) {
-        if (entry.mode === "uuid") {
+        if (entry.mode === "uuid") { // uuid entry resolves source
             const src = await fromUuid(entry.uuid).catch(() => null);
-            if (!src) return null;
+            if (!src) return null; // lost source returns null
             const data = src.toObject();
             delete data._id;
-            if (entry.qty && data.system?.quantity !== undefined) data.system.quantity = entry.qty;
-            if (entry.type === "class" && entry.classLvl !== null) data.system.level = entry.classLvl;
+            if (entry.qty && data.system?.quantity !== undefined) data.system.quantity = entry.qty; // qty present overrides
+            if (entry.type === "class" && entry.classLvl !== null) data.system.level = entry.classLvl; // class level overrides
             return data;
         }
-        if (entry.mode === "blob") {
+        if (entry.mode === "blob") { // blob entry clones data
             const data = foundry.utils.deepClone(entry.data);
             delete data._id;
-            if (entry.qty && data.system?.quantity !== undefined) data.system.quantity = entry.qty;
+            if (entry.qty && data.system?.quantity !== undefined) data.system.quantity = entry.qty; // qty present overrides
             return data;
         }
         return null;
@@ -346,22 +344,22 @@ if (req.action === "restore") {
     const children = (snapshot.items ?? []).filter(e => !PARENT_TYPES.includes(e.type));
 
     const idsBefore = new Set(actor.items.map(i => i.id));
-    for (const entry of parents) {
+    for (const entry of parents) { // per parent, exits after last
         const data = await prepareItemData(entry);
-        if (!data) { failed.push({ name: entry.name, reason: "UUID not found: " + (entry.uuid ?? "blob") }); continue; }
+        if (!data) { failed.push({ name: entry.name, reason: "UUID not found: " + (entry.uuid ?? "blob") }); continue; } // no data records failure
         try { await actor.createEmbeddedDocuments("Item", [data]); restored.push(entry.name); }
         catch (err) { failed.push({ name: entry.name, reason: err.message }); }
     }
 
     await new Promise(r => setTimeout(r, SETTLE_MS));
 
-    // Auto-generated defaults are wrong for archetypes - strip them.
+    // auto defaults are wrong, strip them
     const autoGen = actor.items.filter(i => !idsBefore.has(i.id)).map(i => i.id);
-    if (autoGen.length) await actor.deleteEmbeddedDocuments("Item", autoGen);
+    if (autoGen.length) await actor.deleteEmbeddedDocuments("Item", autoGen); // generated extras get deleted
 
-    for (const entry of children) {
+    for (const entry of children) { // per child, exits after last
         const data = await prepareItemData(entry);
-        if (!data) { failed.push({ name: entry.name, reason: "UUID not found: " + (entry.uuid ?? "blob") }); continue; }
+        if (!data) { failed.push({ name: entry.name, reason: "UUID not found: " + (entry.uuid ?? "blob") }); continue; } // no data records failure
         try { await actor.createEmbeddedDocuments("Item", [data]); restored.push(entry.name); }
         catch (err) { failed.push({ name: entry.name, reason: err.message }); }
     }
@@ -376,22 +374,22 @@ if (req.action === "restore") {
 }
 
 // prune: the only op that deletes seeds.
-if (req.action === "prune") {
+if (req.action === "prune") { // prune action deletes old seeds
     const keep = Number.isInteger(req.keep) && req.keep > 0 ? req.keep : 5;
     const folder = await ensureFolder();
     // Folder seeds only; loose seeds are the GM's.
     const byActor = new Map();
-    for (const i of game.items.filter(i => i.folder?.id === folder.id)) {
+    for (const i of game.items.filter(i => i.folder?.id === folder.id)) { // per folder item, exits after last
         const s = getSnapshot(i);
-        if (!s) continue;
-        if (req.actor && !s.actorName.toLowerCase().includes(String(req.actor).toLowerCase())) continue;
-        if (!byActor.has(s.actorName)) byActor.set(s.actorName, []);
+        if (!s) continue; // non seed skips
+        if (req.actor && !s.actorName.toLowerCase().includes(String(req.actor).toLowerCase())) continue; // other actor skips
+        if (!byActor.has(s.actorName)) byActor.set(s.actorName, []); // new actor starts list
         byActor.get(s.actorName).push({ id: i.id, name: i.name, createdAt: s.createdAt });
     }
     const pruned = [];
-    for (const [actorName, seeds] of byActor) {
+    for (const [actorName, seeds] of byActor) { // per actor name, exits after last
         seeds.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-        for (const old of seeds.slice(keep)) {
+        for (const old of seeds.slice(keep)) { // per old seed, deletes it
             await game.items.get(old.id).delete();
             pruned.push({ actor: actorName, seed: old.name });
         }

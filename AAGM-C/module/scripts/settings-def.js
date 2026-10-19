@@ -27,7 +27,7 @@ const DEFS = {
 
 // config:false; submenu is the only editor.
 export function registerModeSettings() {
-  for (const [key, def] of Object.entries(DEFS)) {
+  for (const [key, def] of Object.entries(DEFS)) { // each setting registered
     game.settings.register(MODULE_ID, key, {
       scope: 'world', config: false, type: def.type, default: def.default,
     });
@@ -36,6 +36,6 @@ export function registerModeSettings() {
 
 export function settingsSnapshot() {
   const out = {};
-  for (const k of SETTING_KEYS) out[k] = game.settings.get(MODULE_ID, k);
+  for (const k of SETTING_KEYS) out[k] = game.settings.get(MODULE_ID, k); // each key read live
   return out;
 }

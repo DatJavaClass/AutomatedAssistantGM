@@ -5,34 +5,34 @@ async function chatBoxMain() {
   const STYLE_ID = 'ccc-claude-code-chat-theme';
   const LAYOUT_ID = 'ccc-claude-code-chat-layout';
   const L = (k) => game.i18n.localize('FOUNDRY_BRIDGE.CHAT.' + k);
-  // §14: tab bar shows only with multitasking on
+  /* §14: tab bar shows only with multitasking on */
   const TABS_ON = !!game.settings.get(MODULE_ID, 'multitasking');
-  const TAB_MAX = 5; /* real estate; keeps the flash legible */
+  const TAB_MAX = 5; /* tab cap for legibility */
   const TAB_TITLE_LEN = 24;
-  const MAIN_TAB = 't-main'; /* tabs off = this single tab */
+  const MAIN_TAB = 't-main'; /* lone tab when off */
 
-  // Prefers VTT Macro Styles journal, else inline CSS
+  /* Prefers VTT Macro Styles journal, else inline CSS */
   async function injectMacroStyles(styleId, pageName, fallbackCSS) {
-    if (document.getElementById(styleId)) return;
+    if (document.getElementById(styleId)) return; /* styled already returns */
     let css = fallbackCSS || '';
     try {
       const journal = game.journal.getName('VTT Macro Styles');
       const page = journal?.pages?.getName(pageName);
-      if (page) {
+      if (page) { /* journal page overrides fallback */
         const div = document.createElement('div');
         div.innerHTML = page.text?.content || '';
         const raw = div.textContent?.trim();
-        if (raw) css = raw;
+        if (raw) css = raw; /* nonblank text replaces css */
       }
     } catch (e) { /* fallback silently takes over */ }
-    if (!css) return;
+    if (!css) return; /* no css returns, else injects */
     const style = document.createElement('style');
     style.id = styleId;
     style.textContent = css;
     document.head.appendChild(style);
   }
 
-  // Dark Theme fallback if the journal is gone.
+  /* Dark Theme fallback if the journal is gone. */
   const FALLBACK_CSS = `
     .forge-dialog-dark { background:#1a1a1a; color:#e0e0e0; }
     .forge-dialog-dark .section { background:#2a2a2a; border:1px solid #00ffcc; padding:8px; border-radius:4px; }
@@ -42,12 +42,12 @@ async function chatBoxMain() {
 
   await injectMacroStyles(STYLE_ID, 'Dark Theme', FALLBACK_CSS);
 
-  // Chat-only layout, ccc- prefixed, out of shared theme.
-  // Typed text forced pure white (DatJavaClass's instruction).
-  if (!document.getElementById(LAYOUT_ID)) {
+  /* Chat-only layout, ccc- prefixed, out of shared theme. */
+  /* Typed text forced pure white (DatJavaClass's instruction). */
+  if (!document.getElementById(LAYOUT_ID)) { /* layout injected once */
     const s = document.createElement('style');
     s.id = LAYOUT_ID;
-    // Explicit heights; flex:1 collapses in Foundry Dialogs.
+    /* Explicit heights; flex:1 collapses in Foundry Dialogs. */
     s.textContent = `
       .ccc-wrap { display:flex; flex-direction:column; gap:8px; }
       .ccc-status { font-size:12px; padding:5px 8px; border-radius:3px; border:1px solid #00ffcc; }
@@ -128,7 +128,7 @@ async function chatBoxMain() {
   }
 
   const api = game.modules.get(MODULE_ID)?.api;
-  if (!api || typeof api.isConnected !== 'function' || !api.isConnected()) {
+  if (!api || typeof api.isConnected !== 'function' || !api.isConnected()) { /* no live bridge shows dialog, exits */
     new Dialog({
       title: L('Title'),
       content: `<div class="forge-dialog-dark"><p class="warning">${L('NotConnected')}</p></div>`,
@@ -150,17 +150,17 @@ async function chatBoxMain() {
   let root = null;
   const $el = (k) => root?.querySelector(`[data-ccc="${k}"]`);
 
-  // §14 tab table: relay owns truth, box resyncs
-  const tabs = new Map(); /* id -> id, title, state, log, sent */
+  /* §14 tab table: relay owns truth, box resyncs */
+  const tabs = new Map(); /* tab records by id */
   let activeId = null;
   const newId = () => 't-' + Math.random().toString(16).slice(2, 10).padEnd(8, '0');
   const logFor = (tabId) => (TABS_ON && tabs.get(tabId)?.log) || tabs.get(activeId)?.log || null;
 
   const renderBar = () => {
     const bar = $el('tabs');
-    if (!bar) return;
+    if (!bar) return; /* no bar returns */
     bar.textContent = '';
-    for (const t of tabs.values()) {
+    for (const t of tabs.values()) { /* one button per tab */
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'ccc-tab ccc-' + (t.state || 'idle') + (t.id === activeId ? ' ccc-active' : '');
@@ -189,9 +189,9 @@ async function chatBoxMain() {
   };
 
   const activate = (id) => {
-    if (!tabs.has(id)) return;
+    if (!tabs.has(id)) return; /* unknown id returns */
     activeId = id;
-    for (const t of tabs.values()) t.log.hidden = t.id !== id;
+    for (const t of tabs.values()) t.log.hidden = t.id !== id; /* only chosen log shown */
     renderBar();
     const log = tabs.get(id).log;
     log.scrollTop = log.scrollHeight;
@@ -208,7 +208,7 @@ async function chatBoxMain() {
   };
 
   const addTab = () => {
-    if (tabs.size >= TAB_MAX) return null;
+    if (tabs.size >= TAB_MAX) return null; /* at cap returns null */
     const t = mintTab(newId(), L('TabNew'), 'idle');
     activate(t.id);
     setTimeout(() => $el('input')?.focus(), 0);
@@ -217,77 +217,77 @@ async function chatBoxMain() {
 
   const closeTab = (id) => {
     const t = tabs.get(id);
-    if (!t) return;
+    if (!t) return; /* unknown tab returns */
     tabs.delete(id);
     t.log.remove();
-    if (t.sent) { try { api.closeTab(id); } catch (e) {} } /* relay never saw a pristine tab */
-    if (activeId === id) {
+    if (t.sent) { try { api.closeTab(id); } catch (e) {} } /* sent tab closes on relay, pristine skips */
+    if (activeId === id) { /* closed active tab picks neighbor */
       const next = tabs.keys().next().value;
-      if (next) activate(next); else addTab();
-    } else renderBar();
+      if (next) activate(next); else addTab(); /* next tab or fresh tab */
+    } else renderBar(); /* inactive close just redraws */
   };
 
   const addMsg = (role, text, tabId, intr) => {
     const log = logFor(tabId);
-    if (!log) return;
+    if (!log) return; /* no log returns */
     const msg = document.createElement('div');
     msg.className = 'ccc-msg ccc-' + role + (intr ? ' ccc-int' : '');
-    if (role === 'user' || role === 'claude') {
+    if (role === 'user' || role === 'claude') { /* speaker label for user, claude */
       const who = document.createElement('span');
       who.className = 'ccc-who';
       who.textContent = role === 'user' ? L('You') : L('Claude');
-      if (intr) who.textContent = '⚡ ' + who.textContent + ' (' + L('Interrupt') + ')';
+      if (intr) who.textContent = '⚡ ' + who.textContent + ' (' + L('Interrupt') + ')'; /* interrupt marks label */
       msg.appendChild(who);
     }
     const body = document.createElement('span');
-    body.textContent = text;            // textContent: no HTML injection, newlines kept by CSS
+    body.textContent = text; /* no HTML injection, CSS keeps newlines */
     msg.appendChild(body);
     log.appendChild(msg);
     log.scrollTop = log.scrollHeight;
   };
 
-  // New ids rebuild from transcript, known ids resync
+  /* New ids rebuild from transcript, known ids resync */
   const syncTabs = (list) => {
-    if (!Array.isArray(list)) return;
+    if (!Array.isArray(list)) return; /* bad list returns */
     const seen = new Set();
-    for (const r of list) {
-      if (!r?.id || (!TABS_ON && r.id !== MAIN_TAB)) continue;
+    for (const r of list) { /* each relay tab merged */
+      if (!r?.id || (!TABS_ON && r.id !== MAIN_TAB)) continue; /* idless or hidden tab skipped */
       seen.add(r.id);
       let t = tabs.get(r.id);
-      if (!t) {
+      if (!t) { /* new id mints tab, replays transcript */
         t = mintTab(r.id, r.title || r.id, r.state);
-        for (const line of r.transcript || []) addMsg(line.role, line.text, r.id);
+        for (const line of r.transcript || []) addMsg(line.role, line.text, r.id); /* each transcript line added */
       }
       t.title = r.title || t.title;
       t.state = r.state || 'idle';
       t.sent = true;
     }
-    for (const t of [...tabs.values()]) {
-      if (seen.has(t.id)) continue;
+    for (const t of [...tabs.values()]) { /* each local tab checked */
+      if (seen.has(t.id)) continue; /* relay listed tab kept */
       const pristine = !t.sent && !t.log.childElementCount;
-      if (t.sent || (pristine && seen.size)) { tabs.delete(t.id); t.log.remove(); }
+      if (t.sent || (pristine && seen.size)) { tabs.delete(t.id); t.log.remove(); } /* stale tab removed */
     }
-    if (!tabs.size) addTab();
-    else if (!tabs.has(activeId)) activate(tabs.keys().next().value);
-    else renderBar();
+    if (!tabs.size) addTab(); /* empty table gets new tab */
+    else if (!tabs.has(activeId)) activate(tabs.keys().next().value); /* lost active picks first */
+    else renderBar(); /* unchanged active redraws */
   };
 
   const setStatus = (state) => {
     const bar = $el('status');
-    if (!bar) return;
+    if (!bar) return; /* no bar returns */
     const ready = state === 'ready';
     bar.className = 'ccc-status ' + (ready ? 'ready' : 'warn');
-    bar.textContent = ready ? L('StatusReady')
+    bar.textContent = ready ? L('StatusReady') /* ready, disconnected, ext, else no listener */
       : state === 'disconnected' ? L('StatusDisconnected')
       : state === 'ext' ? L('StatusExt')
       : L('StatusNoListener');
   };
 
-  // §9 gate card: double level needs second approval
+  /* §9 gate card: double level needs second approval */
   const renderConfirm = (p) => {
     const log = logFor(p?.tabId);
-    if (!log || !p || !p.opId) return;
-    if (log.querySelector(`[data-op="${p.opId}"]`)) return; /* hello re-sends live cards */
+    if (!log || !p || !p.opId) return; /* bad card data returns */
+    if (log.querySelector(`[data-op="${p.opId}"]`)) return; /* card exists returns, hello re-sends */
     const card = document.createElement('div');
     card.className = 'ccc-msg ccc-confirm' + (p.level === 'double' ? ' ccc-double' : '');
     card.dataset.op = p.opId;
@@ -302,21 +302,21 @@ async function chatBoxMain() {
     sum.textContent = p.summary || '(no summary provided)';
     card.appendChild(sum);
 
-    if (p.code) {
+    if (p.code) { /* code block shown when given */
       const pre = document.createElement('pre');
       pre.className = 'ccc-cf-code';
       pre.textContent = p.code;
       card.appendChild(pre);
     }
-    if (Array.isArray(p.preview) && p.preview.length) {
+    if (Array.isArray(p.preview) && p.preview.length) { /* preview table when rows given */
       const tbl = document.createElement('table');
       tbl.className = 'ccc-cf-tbl';
       const hr = document.createElement('tr');
       ['Target', 'HP', '→'].forEach((c) => { const th = document.createElement('th'); th.textContent = c; hr.appendChild(th); });
       tbl.appendChild(hr);
-      for (const row of p.preview) {
+      for (const row of p.preview) { /* one table row per target */
         const tr = document.createElement('tr');
-        [row.name, String(row.before), '→ ' + String(row.after)].forEach((v) => {
+        [row.name, String(row.before), '→ ' + String(row.after)].forEach((v) => { /* each cell appended */
           const td = document.createElement('td'); td.textContent = v; tr.appendChild(td);
         });
         tbl.appendChild(tr);
@@ -326,7 +326,7 @@ async function chatBoxMain() {
 
     let resolved = false;
     const finish = (approved, reason, msgKey) => {
-      if (resolved) return;
+      if (resolved) return; /* second click ignored */
       resolved = true;
       try { api.sendConfirmResult(p.opId, approved, reason); } catch (e) {}
       card.querySelector('.ccc-cf-row')?.remove();
@@ -352,7 +352,7 @@ async function chatBoxMain() {
     card.appendChild(buildRow(
       L('Approve'),
       () => {
-        if (p.level === 'double') {
+        if (p.level === 'double') { /* double level asks again */
           card.querySelector('.ccc-cf-row')?.remove();
           const warn = document.createElement('div');
           warn.className = 'ccc-cf-h';
@@ -363,7 +363,7 @@ async function chatBoxMain() {
             L('Cancel'), () => finish(false, 'cancelled', 'Denied'),
           ));
           log.scrollTop = log.scrollHeight;
-        } else {
+        } else { /* single level approves now */
           finish(true, 'approved', 'Approved');
         }
       },
@@ -375,7 +375,7 @@ async function chatBoxMain() {
     log.scrollTop = log.scrollHeight;
   };
 
-  // 2.0: writes run at once, undo via card
+  /* 2.0: writes run at once, undo via card */
   const rpCard = (id) => (id ? root?.querySelector(`[data-rp="${id}"]`) : null);
   const tabOf = (node) => [...tabs.values()].find((t) => t.log.contains(node))?.id;
   const div = (cls, text) => { const d = document.createElement('div'); d.className = cls; d.textContent = text; return d; };
@@ -388,55 +388,55 @@ async function chatBoxMain() {
   };
 
   const renderPoint = (pt) => {
-    if (!pt?.id || rpCard(pt.id)) return; /* sync re-sends, dedupe by id */
+    if (!pt?.id || rpCard(pt.id)) return; /* idless or known point returns, else renders */
     const log = logFor(pt.tabId);
-    if (!log) return;
+    if (!log) return; /* no log returns */
     const card = document.createElement('div');
     card.className = 'ccc-msg ccc-confirm ccc-rp';
     card.dataset.rp = pt.id;
     card.appendChild(div('ccc-cf-h', `${L('RollbackPoint')} ${pt.id} (${pt.kind || 'eval'})`));
     card.appendChild(div('ccc-cf-sum', pt.summary || '(no summary provided)'));
-    if (pt.captured) card.appendChild(div('ccc-rp-cap', pt.captured));
+    if (pt.captured) card.appendChild(div('ccc-rp-cap', pt.captured)); /* capture note when given */
     const docs = Array.isArray(pt.docs) ? pt.docs : [];
-    if (docs.length) {
+    if (docs.length) { /* doc list when any */
       const det = document.createElement('details');
       det.className = 'ccc-rp-docs';
       const sm = document.createElement('summary');
       sm.textContent = docs[0] + (docs.length > 1 ? ` (+${docs.length - 1})` : '');
       det.appendChild(sm);
       const ul = document.createElement('ul');
-      for (const d of docs) { const li = document.createElement('li'); li.textContent = d; ul.appendChild(li); }
+      for (const d of docs) { const li = document.createElement('li'); li.textContent = d; ul.appendChild(li); } /* one list item per doc */
       det.appendChild(ul);
       card.appendChild(det);
     }
-    if (!pt.state || pt.state === 'live') {
+    if (!pt.state || pt.state === 'live') { /* live point gets button, else marked */
       const row = document.createElement('div');
       row.className = 'ccc-cf-row';
       const btn = document.createElement('button');
       btn.type = 'button'; btn.className = 'ccc-cf-btn ccc-rp-btn'; btn.textContent = L('RollBack');
       btn.addEventListener('click', () => {
-        btn.disabled = true; /* relay answers rolled-back or error */
+        btn.disabled = true; /* locked until relay replies */
         let ok = false;
         try { ok = api.rollbackTo(pt.id) !== false; } catch (e) {}
-        if (!ok) { btn.disabled = false; addMsg('sys', L('StatusDisconnected'), tabOf(card)); }
+        if (!ok) { btn.disabled = false; addMsg('sys', L('StatusDisconnected'), tabOf(card)); } /* failed send re-enables button */
       });
       row.appendChild(btn);
       card.appendChild(row);
-    } else markRolled(card, pt.state, pt.via);
+    } else markRolled(card, pt.state, pt.via); /* finished point marked rolled */
     log.appendChild(card);
     log.scrollTop = log.scrollHeight;
   };
 
   const onRollback = (p) => {
-    if (!p) return;
-    switch (p.event) {
+    if (!p) return; /* empty event returns */
+    switch (p.event) { /* point, sync, rolled-back, error routed */
       case 'point': renderPoint(p.point); break;
-      case 'sync': for (const pt of p.points || []) renderPoint(pt); break;
+      case 'sync': for (const pt of p.points || []) renderPoint(pt); break; /* each synced point rendered */
       case 'rolled-back': {
         const pt = p.point || {};
         const card = rpCard(pt.id);
-        if (card) markRolled(card, pt.state, p.via || pt.via);
-        else renderPoint({ ...pt, state: pt.state === 'partial' ? 'partial' : 'rolled-back', via: p.via || pt.via });
+        if (card) markRolled(card, pt.state, p.via || pt.via); /* existing card marked, else rendered */
+        else renderPoint({ ...pt, state: pt.state === 'partial' ? 'partial' : 'rolled-back', via: p.via || pt.via }); /* unseen point rendered with state */
         const tab = tabOf(rpCard(pt.id)) || pt.tabId;
         addMsg('sys', `${pt.state === 'partial' ? L('RolledBackPartial') : L('RolledBack')}: ${pt.id || ''} (via ${p.via || pt.via || 'box'})`, tab);
         break;
@@ -444,14 +444,14 @@ async function chatBoxMain() {
       case 'error': {
         const card = rpCard(p.pointId);
         const btn = card?.querySelector('.ccc-rp-btn');
-        if (btn) btn.disabled = false;
+        if (btn) btn.disabled = false; /* button re-enabled on error */
         addMsg('sys', `${L('RollbackError')} ${p.text || ''}`, card ? tabOf(card) : undefined);
         break;
       }
     }
   };
 
-  // Drop inserts @UUID ref, not raw JSON paste
+  /* Drop inserts @UUID ref, not raw JSON paste */
   const insertRef = (ta, ref) => {
     const start = ta.selectionStart ?? ta.value.length;
     const end = ta.selectionEnd ?? start;
@@ -464,10 +464,10 @@ async function chatBoxMain() {
   const onDrop = (ev) => {
     let data = null;
     try { data = TextEditor.getDragEventData(ev); } catch (e) { return; }
-    if (!data?.uuid) return;
+    if (!data?.uuid) return; /* non document drop returns */
     ev.preventDefault();
     const ta = $el('input');
-    if (!ta) return;
+    if (!ta) return; /* no input returns */
     let name = null;
     try { name = fromUuidSync(data.uuid)?.name || null; } catch (e) { /* uuid alone still resolves on Claude's side */ }
     insertRef(ta, name ? `@UUID[${data.uuid}]{${name}}` : `@UUID[${data.uuid}]`);
@@ -477,12 +477,12 @@ async function chatBoxMain() {
     const ta = $el('input');
     const text = (ta?.value || '').trim();
     const t = tabs.get(activeId);
-    if (!text || !t) return;
-    if (TABS_ON && text.toLowerCase() === '/close') { ta.value = ''; closeTab(t.id); return; } /* same as the x */
+    if (!text || !t) return; /* blank text or tab returns */
+    if (TABS_ON && text.toLowerCase() === '/close') { ta.value = ''; closeTab(t.id); return; } /* close command acts like the x */
     const intr = (t.state === 'working' || t.state === 'gated') && !/^\/(exit|ext|int|log|rollback|points)\b/i.test(text); /* relay eats commands */
     const id = api.sendPrompt(text, t.id);
-    if (!id) { addMsg('sys', L('StatusDisconnected')); setStatus('disconnected'); return; }
-    if (!t.sent) { t.title = text.slice(0, TAB_TITLE_LEN); t.state = 'working'; } /* relay will agree */
+    if (!id) { addMsg('sys', L('StatusDisconnected')); setStatus('disconnected'); return; } /* failed send shows disconnect */
+    if (!t.sent) { t.title = text.slice(0, TAB_TITLE_LEN); t.state = 'working'; } /* first send names tab, relay agrees */
     t.sent = true;
     addMsg('user', text, t.id, intr);
     renderBar();
@@ -490,12 +490,12 @@ async function chatBoxMain() {
     ta.focus();
   };
 
-  // §13.3: one card tracks chain grant to end
+  /* §13.3: one card tracks chain grant to end */
   let chainCard = null;
   const onChain = (p) => {
     const log = logFor(p?.tabId);
-    if (!log || !p) return;
-    if (p.event === 'grant') {
+    if (!log || !p) return; /* bad chain event returns */
+    if (p.event === 'grant') { /* grant opens progress card */
       chainCard = document.createElement('div');
       chainCard.className = 'ccc-msg ccc-confirm';
       const h = document.createElement('div');
@@ -515,18 +515,18 @@ async function chatBoxMain() {
       chainCard.appendChild(cancel);
       log.appendChild(chainCard);
       log.scrollTop = log.scrollHeight;
-    } else if (p.event === 'gate' && chainCard) {
+    } else if (p.event === 'gate' && chainCard) { /* gate updates progress count */
       const prog = chainCard.querySelector('[data-ccc="chainprog"]');
-      if (prog) prog.textContent = `${p.n}/${p.count} - ${p.text || ''}`;
+      if (prog) prog.textContent = `${p.n}/${p.count} - ${p.text || ''}`; /* progress text updated when found */
       log.scrollTop = log.scrollHeight;
-    } else if (p.event === 'end') {
+    } else if (p.event === 'end') { /* end drops cancel, logs result */
       chainCard?.querySelector('button')?.remove();
       chainCard = null;
       addMsg('sys', `${L('ChainEnded')} ${p.n}/${p.count} (${p.text || ''})`, p.tabId);
     }
   };
 
-  // Subscribe before dialog opens, unsubscribe on close
+  /* Subscribe before dialog opens, unsubscribe on close */
   const unsubReply = api.onReply((p) => addMsg(p?.system ? 'sys' : 'claude', p?.text ?? '', p?.tabId));
   const unsubStatus = api.onStatus((p) => setStatus(p?.state || 'no-listener'));
   const unsubConfirm = api.onConfirm((p) => renderConfirm(p || {}));
@@ -545,31 +545,31 @@ async function chatBoxMain() {
       $el('send')?.addEventListener('click', submit);
       const ta = $el('input');
       ta?.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); submit(); }
+        if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); submit(); } /* plain Enter submits */
       });
-      // Tab bar: one delegated listener; close beats select.
+      /* Tab bar: one delegated listener; close beats select. */
       $el('tabs')?.addEventListener('click', (ev) => {
         const x = ev.target.closest?.('[data-close]');
-        if (x) { ev.stopPropagation(); closeTab(x.dataset.close); return; }
-        if (ev.target.closest?.('[data-ccc="tabadd"]')) { addTab(); return; }
+        if (x) { ev.stopPropagation(); closeTab(x.dataset.close); return; } /* close icon closes tab */
+        if (ev.target.closest?.('[data-ccc="tabadd"]')) { addTab(); return; } /* plus button adds tab */
         const b = ev.target.closest?.('[data-tab]');
-        if (b) activate(b.dataset.tab);
+        if (b) activate(b.dataset.tab); /* tab body selects tab */
       });
-      if (TABS_ON) addTab(); else activate(mintTab(MAIN_TAB, L('Title'), 'idle').id);
-      // Whole box is drop zone; counter tracks bubbling
+      if (TABS_ON) addTab(); else activate(mintTab(MAIN_TAB, L('Title'), 'idle').id); /* tabs on adds, off mints main */
+      /* Whole box is drop zone; counter tracks bubbling */
       const wrap = $el('wrap');
       let dragDepth = 0;
       const undrop = () => { dragDepth = 0; $el('input')?.classList.remove('ccc-drop'); };
       wrap?.addEventListener('dragenter', (ev) => { ev.preventDefault(); dragDepth++; $el('input')?.classList.add('ccc-drop'); });
-      wrap?.addEventListener('dragleave', () => { dragDepth--; if (dragDepth <= 0) undrop(); });
+      wrap?.addEventListener('dragleave', () => { dragDepth--; if (dragDepth <= 0) undrop(); }); /* fully left drop zone clears */
       wrap?.addEventListener('dragover', (ev) => ev.preventDefault());
       wrap?.addEventListener('drop', (ev) => { undrop(); onDrop(ev); });
       setStatus(api.isConnected() ? 'no-listener' : 'disconnected');
       api.requestStatus(); /* relay answers: status, tab table, live cards */
       poll = setInterval(() => {
         const c = api.isConnected();
-        if (!c) setStatus('disconnected');
-        else if (!wasConnected) { api.requestStatus(); }   // reconnected: refresh
+        if (!c) setStatus('disconnected'); /* dropped link shows disconnected */
+        else if (!wasConnected) { api.requestStatus(); } /* reconnect refreshes status */
         wasConnected = c;
       }, 3000);
       setTimeout(() => $el('input')?.focus(), 50);
@@ -581,7 +581,7 @@ async function chatBoxMain() {
       try { unsubChain?.(); } catch (e) {}
       try { unsubTabs?.(); } catch (e) {}
       try { unsubRollback?.(); } catch (e) {}
-      if (poll) { clearInterval(poll); poll = null; }
+      if (poll) { clearInterval(poll); poll = null; } /* timer cleared on close */
     },
   }, { width: 560, resizable: false, classes: ['ccc-dialog'] });
 
