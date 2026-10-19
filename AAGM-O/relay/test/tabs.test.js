@@ -25,9 +25,9 @@ test('tabs route prompts, interrupts, rollback points, and closure through MCP',
     sessionId: 'fake', userId: 'gm', userName: 'GM', capabilitySet: 'gm',
     capabilities: new Set(['eval', 'rollback.apply']), send: (message) => {
       outbox.push(message);
-      if (!message.id) return;
+      if (!message.id) return; // notices need no reply
       const { method, params } = message;
-      const reply = method === 'rollback.apply'
+      const reply = method === 'rollback.apply' // apply, fail, else ok
         ? { result: { pointId: params.pointId, applied: params.entries.map((e) => ({ uuid: e.uuid, op: e.op, ok: true })) } }
         : params.code?.includes('FAIL_WRITE')
           ? { error: { code: -33002, message: 'eval: execution threw: write failed', data: { rollback: { entries: touched } } } }
@@ -45,8 +45,8 @@ test('tabs route prompts, interrupts, rollback points, and closure through MCP',
   const sent = (method) => outbox.filter((message) => message.method === method);
   const last = (method) => sent(method).at(-1)?.params;
   const waitFor = async (check) => {
-    for (let i = 0; i < 100; i++) {
-      if (check()) return;
+    for (let i = 0; i < 100; i++) { // polls; check true returns, else fails
+      if (check()) return; // check true returns, else sleeps
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     assert.fail('expected relay event did not arrive');
@@ -58,8 +58,8 @@ test('tabs route prompts, interrupts, rollback points, and closure through MCP',
       body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name, arguments: args } }),
     });
     const body = await response.json();
-    if (body.error) throw Object.assign(new Error(body.error.message), { code: body.error.code });
-    if (body.result.isError) throw new Error(body.result.content[0].text);
+    if (body.error) throw Object.assign(new Error(body.error.message), { code: body.error.code }); // RPC error throws
+    if (body.result.isError) throw new Error(body.result.content[0].text); // tool error throws
     return JSON.parse(body.result.content[0].text);
   };
 
@@ -102,7 +102,7 @@ test('tabs route prompts, interrupts, rollback points, and closure through MCP',
     await call('foundry_send_reply', { text: 'done', tabId: 't-a' });
     assert.equal(tabs.tabs.get('t-a').state, 'done');
     assert.equal(last('aagm.reply').tabId, 't-a');
-    for (let i = 0; i < 45; i++) box('aagm.prompt', { text: `line ${i}`, tabId: 't-b' });
+    for (let i = 0; i < 45; i++) box('aagm.prompt', { text: `line ${i}`, tabId: 't-b' }); // 45 prompts overflow transcript cap
     assert.equal(tabs.tabs.get('t-b').transcript.length, 40);
     assert.equal(tabs.tabs.get('t-b').transcript[0].text, 'line 5');
     await call('foundry_get_prompts', { listenerId: 'listener-one' });

@@ -2,9 +2,9 @@
 
 export async function handleQueryUser(params) {
   const { userId } = params || {};
-  if (userId) {
+  if (userId) { // user id returns one user
     const u = game.users.get(userId);
-    if (!u) throw new Error(`user not found: ${userId}`);
+    if (!u) throw new Error(`user not found: ${userId}`); // unknown user throws
     return { user: serialize(u) };
   }
   return { users: game.users.map(serialize) };

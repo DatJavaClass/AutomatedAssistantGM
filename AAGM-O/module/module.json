@@ -2,7 +2,7 @@
   "id": "aagm-o",
   "title": "AAGM-O: Automated Assistant Game Master - OpenAI",
   "description": "Localhost-only bridge connecting a Foundry VTT GM client to Codex or the ChatGPT desktop app through MCP, with interrupts, rollback points, internal and external modes, session logs, Loot Watchdog, and Macro Mirror.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "compatibility": {
     "minimum": "12",
     "verified": "12.343",
@@ -30,7 +30,7 @@
       }
     ]
   },
-  "url": "https://github.com/DatJavaClass/AutomatedAssistantGM/tree/grape/AAGM-O",
-  "manifest": "https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/grape/AAGM-O/module/module.json",
-  "download": "https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/grape/AAGM-O/module.zip"
+  "url": "https://github.com/DatJavaClass/AutomatedAssistantGM/tree/main/AAGM-O",
+  "manifest": "https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/main/AAGM-O/module/module.json",
+  "download": "https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/main/AAGM-O/module.zip"
 }

@@ -1,11 +1,10 @@
-/* Foundry settings application. */
-/* Inline HTML avoids shipping templates. */
+/* Foundry settings application. Inline HTML avoids shipping templates. */
 
 import { PRESETS, SETTING_KEYS, settingsSnapshot } from './settings-def.js';
 
-const MODULE_ID = 'aagm-o';
-const L = (k) => game.i18n.localize(`AAGM_O.SETTINGS.${k}`);
-const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+const MODULE_ID = 'aagm-o'; // module id
+const L = (k) => game.i18n.localize(`AAGM_O.SETTINGS.${k}`); // localizer by key
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); // attribute text escaper
 
 export class AagmSettingsMenu extends FormApplication {
   static get defaultOptions() {
@@ -51,22 +50,22 @@ export class AagmSettingsMenu extends FormApplication {
     super.activateListeners(html);
     /* Seatbelt: bind submit if core missed the form */
     const form = html[0] instanceof HTMLFormElement ? html[0] : (html.find('form')[0] || html.closest('form')[0]);
-    if (form && form.onsubmit == null) { this.form = form; form.onsubmit = this._onSubmit.bind(this); }
+    if (form && form.onsubmit == null) { this.form = form; form.onsubmit = this._onSubmit.bind(this); } // form unbound gets submit handler
     /* Modes lock dependent options live. */
     html.find('input[name="mode"]').on('change', (ev) => {
       const mode = ev.currentTarget.value, custom = mode === 'custom';
       html.find('[data-aagmo="opts"] input').prop('disabled', !custom);
       const p = PRESETS[mode];
-      if (p) for (const [k, v] of Object.entries(p)) html.find(`input[name="${k}"]`).prop('checked', v);
+      if (p) for (const [k, v] of Object.entries(p)) html.find(`input[name="${k}"]`).prop('checked', v); // preset checks boxes, else skipped
     });
   }
 
   async _updateObject(_event, formData) {
     const mode = (PRESETS[formData.mode] || formData.mode === 'custom') ? formData.mode : 'assistant';
-    if (PRESETS[mode]) Object.assign(formData, PRESETS[mode]); /* presets win */
+    if (PRESETS[mode]) Object.assign(formData, PRESETS[mode]); /* preset overrides form, else untouched */
     formData.mode = mode;
-    for (const k of SETTING_KEYS) {
-      if (formData[k] !== undefined) await game.settings.set(MODULE_ID, k, formData[k]);
+    for (const k of SETTING_KEYS) { // each key saved, ends at last
+      if (formData[k] !== undefined) await game.settings.set(MODULE_ID, k, formData[k]); // defined value saved, else skipped
     }
     game.modules.get(MODULE_ID)?.api?.syncSettings?.(); /* relay is the enforcer */
     ui.notifications?.info(game.i18n.localize('AAGM_O.SETTINGS.Saved'));

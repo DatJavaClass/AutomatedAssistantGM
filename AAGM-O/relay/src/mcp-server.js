@@ -12,7 +12,7 @@ export async function startMcpServer({
   mirror, writeQueue, rollbacks, tabs,
 }) {
   const { host, port } = config.mcp;
-  if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') {
+  if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') { // non loopback host throws
     throw new Error(`refusing to bind MCP server to non-localhost address "${host}"`);
   }
 
@@ -24,27 +24,27 @@ export async function startMcpServer({
   };
 
   const claimPromptListener = (request) => {
-    if (request?.method !== 'tools/call'
+    if (request?.method !== 'tools/call' // non listener calls pass through
       || !['foundry_get_prompts', 'foundry_get_interrupts'].includes(request.params?.name)) return true;
     const listenerId = request.params?.arguments?.listenerId;
-    if (typeof listenerId !== 'string' || listenerId.length < 4) return true;
-    if (promptQueue.claimListener(listenerId)) return true;
+    if (typeof listenerId !== 'string' || listenerId.length < 4) return true; // bad listenerId passes through
+    if (promptQueue.claimListener(listenerId)) return true; // slot owner passes, others refused
     audit.log('chat.refused', { listenerId });
     dispatcher.notifyBridge({ capabilitySet, method: 'aagm.listener.refused', params: {} });
     return false;
   };
 
   const httpServer = http.createServer((req, res) => {
-    if (req.method === 'POST' && req.url === '/mcp') {
+    if (req.method === 'POST' && req.url === '/mcp') { // POST mcp handled, returns
       handlePost(req, res, makeServer, audit, claimPromptListener);
       return;
     }
-    if (req.method === 'GET' && req.url === '/healthz') {
+    if (req.method === 'GET' && req.url === '/healthz') { // health check answers 200
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ ok: true, bridges: dispatcher.bridges.size }));
       return;
     }
-    if ((req.method === 'GET' || req.method === 'DELETE') && req.url === '/mcp') {
+    if ((req.method === 'GET' || req.method === 'DELETE') && req.url === '/mcp') { // GET or DELETE answers 405
       res.writeHead(405, { 'content-type': 'application/json', 'allow': 'POST' });
       res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed. Use POST.' }, id: null }));
       return;
@@ -80,10 +80,10 @@ async function handlePost(req, res, makeServer, audit, claimPromptListener) {
       res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32700, message: 'parse error' }, id: null }));
       return;
     }
-    if (parsed?.method === 'tools/call') {
+    if (parsed?.method === 'tools/call') { // tool calls logged before routing
       audit.log('mcp.call', { name: parsed.params?.name, arguments: parsed.params?.arguments || {} });
     }
-    if (!claimPromptListener(parsed)) {
+    if (!claimPromptListener(parsed)) { // refused listener gets -33005 reply
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({
         jsonrpc: '2.0',
@@ -108,7 +108,7 @@ async function handlePost(req, res, makeServer, audit, claimPromptListener) {
     } catch (err) {
       console.error('[mcp] request handling failed:', err);
       audit.log('mcp.error', { message: err.message });
-      if (!res.headersSent) {
+      if (!res.headersSent) { // unsent response gets 500
         res.writeHead(500, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: err.message }, id: parsed?.id ?? null }));
       }
@@ -123,7 +123,7 @@ function registerTools(server, dispatcher, audit, promptQueue, capabilitySet, wo
   const tabParam = z.string().optional().describe('Prompt tab id used for routing and rollback notices.');
   /* Recorded write: bridge returns the touched documents. */
   const rollbackWrite = async ({ label, kind, tabId }, method, params) => writeQueue.run(label, async () => {
-    if (promptQueue.interactionMode === 'external' && tabId) {
+    if (promptQueue.interactionMode === 'external' && tabId) { // external mode refuses internal write
       return { refused: true, reason: 'external-mode: internal worker writes are suspended' };
     }
     const rp = rollbacks.open({ summary: label, tabId: tabs.resolve(tabId), kind });
@@ -131,7 +131,7 @@ function registerTools(server, dispatcher, audit, promptQueue, capabilitySet, wo
     try { r = await callBridge(method, { ...params, rp: { id: rp.id } }, 300_000); }
     catch (err) {
       const entries = err?.data?.rollback?.entries; // writes before the throw
-      if (Array.isArray(entries) && entries.length) {
+      if (Array.isArray(entries) && entries.length) { // bridge entries recorded, else error only
         const point = rollbacks.record(rp, entries, { failed: err.message });
         err.message += ` (rollback point ${point.id} holds ${point.captured}; foundry_rollback can undo it)`;
       }
@@ -226,7 +226,7 @@ function registerTools(server, dispatcher, audit, promptQueue, capabilitySet, wo
       const unsub = dispatcher.subscribe('logs.entry', (entry) => {
         collected.push(entry);
         try {
-          const mcpLevel = entry.level === 'error' ? 'error' : entry.level === 'warn' ? 'warning' : 'info';
+          const mcpLevel = entry.level === 'error' ? 'error' : entry.level === 'warn' ? 'warning' : 'info'; // error, warn, else info
           extra?.sendNotification?.({
             method: 'notifications/message',
             params: { level: mcpLevel, logger: 'foundry', data: entry },
@@ -277,27 +277,27 @@ function registerTools(server, dispatcher, audit, promptQueue, capabilitySet, wo
     },
     async ({ code, intent, summary, awaitResult, captureConsole, tabId }) => {
       const verdict = classifyEval(code);
-      const declared = intent === 'destructive' ? 'destructive' : intent === 'write' ? 'mutating' : 'read';
+      const declared = intent === 'destructive' ? 'destructive' : intent === 'write' ? 'mutating' : 'read'; // destructive, write, else read
       const effective = SEVERITY[verdict.category] >= SEVERITY[declared] ? verdict.category : declared;
       audit.log('eval.in', { code: truncateForLog(code), category: verdict.category, declared, effective, summary: summary || null });
 
-      if (verdict.category === 'db-journal') {
+      if (verdict.category === 'db-journal') { // journal hit blocks, others continue
         audit.log('eval.blocked', { category: 'db-journal', match: verdict.match });
         return asText({ blocked: true, reason:
           `Refused: this touches a Database Journal (${verdict.match}), a macro backing store, ` +
           `strictly off-limits even for reads. Use a sheet, compendium, or sidebar. If only that ` +
           `journal contains it, tell the GM it needs the owning macro.` });
       }
-      if (verdict.category === 'side-effect') {
+      if (verdict.category === 'side-effect') { // irreversible action blocks, others continue
         audit.log('eval.blocked', { category: 'side-effect', match: verdict.match });
         return asText({ blocked: true, reason:
           `Refused: this action (${verdict.match}) cannot be reversed by a rollback point. ` +
           `Use a document or world-setting operation with rollback coverage.` });
       }
-      if (effective === 'read') {
+      if (effective === 'read') { // read runs directly, write continues
         return asText(await callBridge('eval', { code, awaitResult, captureConsole }));
       }
-      if (!summary || !summary.trim()) return asText({ refused: true, reason:
+      if (!summary || !summary.trim()) return asText({ refused: true, reason: // blank summary refused, else write
         'A plain-English `summary` is required to label the rollback point for a write.' });
       const kind = effective === 'destructive' ? 'destructive eval' : 'eval';
       return asText(await rollbackWrite({ label: summary.trim(), kind, tabId }, 'eval', { code, awaitResult, captureConsole }));
@@ -322,7 +322,7 @@ function registerTools(server, dispatcher, audit, promptQueue, capabilitySet, wo
     },
     async ({ targets, amount, summary, note, tabId }) => {
       const plan = await callBridge('damage', { targets, amount, commit: false }, 120_000);
-      if (plan?.error) return asText({ error: plan.error });
+      if (plan?.error) return asText({ error: plan.error }); // plan error returns, else commits
       audit.log('damage.plan', { targets, amount, lethal: !!plan.lethal, preview: plan.preview, note: note || null });
       const label = `${summary.trim()}${plan.lethal ? ' (lethal)' : ''}`;
       const result = await rollbackWrite({ label, kind: 'damage', tabId }, 'damage', { targets, amount, commit: true });
@@ -340,7 +340,7 @@ function registerTools(server, dispatcher, audit, promptQueue, capabilitySet, wo
     async ({ name }) => {
       try {
         const result = await callBridge('mirror.list', { name });
-        if (name && !result.macros?.length) return asText({ refused: true, reason: `world macro not found: ${name}` });
+        if (name && !result.macros?.length) return asText({ refused: true, reason: `world macro not found: ${name}` }); // named macro missing refuses
         return asText(await mirror.backup(result.macros || []));
       } catch (error) {
         return asText({ refused: true, reason: error.message });
@@ -418,7 +418,7 @@ function registerTools(server, dispatcher, audit, promptQueue, capabilitySet, wo
       tabId: tabParam,
     },
     async ({ rollbackId, tabId }) => writeQueue.run('rollback', async () => {
-      if (promptQueue.interactionMode === 'external' && tabId) {
+      if (promptQueue.interactionMode === 'external' && tabId) { // external mode refuses rollback
         return asText({ refused: true, reason: 'external-mode: internal worker writes are suspended' });
       }
       return asText(await rollbacks.rollbackTo(rollbackId, { via: 'tool' }));
@@ -446,7 +446,7 @@ function registerTools(server, dispatcher, audit, promptQueue, capabilitySet, wo
       listenerId: z.string().min(4).describe('Stable listener id generated once at startup'),
     },
     async ({ listenerId }) => {
-      if (!promptQueue.claimListener(listenerId)) {
+      if (!promptQueue.claimListener(listenerId)) { // other listener owns slot, throws -33005
         audit.log('chat.refused', { listenerId });
         dispatcher.notifyBridge({ capabilitySet, method: 'aagm.listener.refused', params: {} });
         const error = new Error('listener-occupied: another AAGM-O listener is already draining this chat box');
@@ -458,7 +458,7 @@ function registerTools(server, dispatcher, audit, promptQueue, capabilitySet, wo
       r.mode = promptQueue.interactionMode;
       r.tabs = tabs.list();
       r.closedTabs = tabs.drainClosed();
-      if (r.prompts.length || r.terminate || r.closedTabs.length) {
+      if (r.prompts.length || r.terminate || r.closedTabs.length) { // activity logged, idle poll silent
         audit.log('chat.poll', { count: r.prompts.length, terminate: r.terminate, closed: r.closedTabs.length });
       }
       return asText(r);
@@ -475,7 +475,7 @@ function registerTools(server, dispatcher, audit, promptQueue, capabilitySet, wo
       tabId: z.string().min(1).describe('The working tab id'),
     },
     async ({ listenerId, tabId }) => {
-      if (!promptQueue.claimListener(listenerId)) {
+      if (!promptQueue.claimListener(listenerId)) { // slot owned elsewhere throws -33005
         const error = new Error('listener-occupied: another AAGM-O listener owns this chat box');
         error.code = -33005;
         throw error;
@@ -510,12 +510,12 @@ function registerTools(server, dispatcher, audit, promptQueue, capabilitySet, wo
       final: z.boolean().optional().describe('false keeps the tab working. Default true marks it done.'),
     },
     async ({ text, promptId, tabId, final }) => {
-      if (promptQueue.interactionMode === 'external') {
+      if (promptQueue.interactionMode === 'external') { // external mode drops reply
         audit.log('chat.reply.dropped', { promptId, tabId, reason: 'external-mode', text: truncateForLog(text) });
         return asText({ delivered: false, tabId: tabId || null, refused: true, reason: 'external-mode' });
       }
       const routed = tabs.reply(tabId || tabs.first().id, text, { final: final !== false });
-      if (routed.dropped) return asText({ delivered: false, tabId: routed.tabId, dropped: true });
+      if (routed.dropped) return asText({ delivered: false, tabId: routed.tabId, dropped: true }); // dropped reply returns early
       const delivered = dispatcher.notifyBridge({
         capabilitySet,
         method: 'aagm.reply',
@@ -536,7 +536,7 @@ function registerTools(server, dispatcher, audit, promptQueue, capabilitySet, wo
       clear: z.boolean().optional().describe('Restore normal listener status'),
     },
     async ({ text, count, clear }) => {
-      if (!worldSettings.get('multitasking')) return asText({ refused: true, reason: 'multitasking-disabled' });
+      if (!worldSettings.get('multitasking')) return asText({ refused: true, reason: 'multitasking-disabled' }); // multitasking off refuses
       const params = clear ? promptQueue.status() : {
         state: 'working',
         text: String(text || '').trim() || 'Background work running',

@@ -2,20 +2,20 @@
 
 async function resolveTarget(ref) {
   const s = String(ref ?? '').trim();
-  if (!s) return null;
+  if (!s) return null; // empty ref returns null
   /* Resolve document UUIDs first. */
-  if (s.includes('.')) {
+  if (s.includes('.')) { // dotted ref tries UUID first
     try {
       let d = await fromUuid(s);
-      if (d && d.documentName === 'Token') d = d.actor;
-      if (d && d.documentName === 'Actor') return d;
+      if (d && d.documentName === 'Token') d = d.actor; // token swaps to its actor
+      if (d && d.documentName === 'Actor') return d; // actor found returns, else name lookup
     } catch { /* fall through to name resolution */ }
   }
   const exact = game.actors.getName(s);
-  if (exact) return exact;
+  if (exact) return exact; // exact name returns
   const low = s.toLowerCase();
   const ci = game.actors.find((a) => a.name.toLowerCase() === low);
-  if (ci) return ci;
+  if (ci) return ci; // case blind name returns
   const partial = game.actors.filter((a) => a.name.toLowerCase().includes(low));
   return partial.length === 1 ? partial[0] : null; // ambiguous -> unresolved
 }
@@ -32,41 +32,41 @@ function project({ value, temp }, amount) {
 }
 
 export async function handleDamage({ targets, amount, commit } = {}) {
-  if (!Array.isArray(targets) || targets.length === 0) {
+  if (!Array.isArray(targets) || targets.length === 0) { // bad targets throws, valid continues
     const e = new Error('damage: `targets` must be a non-empty array'); e.code = -32602; throw e;
   }
   const amt = Number(amount);
-  if (!Number.isInteger(amt) || amt <= 0) {
+  if (!Number.isInteger(amt) || amt <= 0) { // bad amount throws, valid continues
     const e = new Error('damage: `amount` must be a positive integer'); e.code = -32602; throw e;
   }
 
   const resolved = [];
-  for (const ref of targets) resolved.push({ ref, actor: await resolveTarget(ref) });
+  for (const ref of targets) resolved.push({ ref, actor: await resolveTarget(ref) }); // each target resolved, ends at last
   const missing = resolved.filter((r) => !r.actor).map((r) => r.ref);
-  if (missing.length) {
+  if (missing.length) { // unresolved targets return error
     return { error: `Could not resolve target(s): ${missing.join(', ')}. Use exact names or UUIDs.` };
   }
 
-  const preview = resolved.map(({ actor }) => {
+  const preview = resolved.map(({ actor }) => { // row per actor
     const hp = hpOf(actor);
     const { after } = project(hp, amt);
     return { name: actor.name, uuid: actor.uuid, before: hp.value, temp: hp.temp, after, lethal: after < 1 };
   });
   const lethal = preview.some((p) => p.lethal);
 
-  if (!commit) {
+  if (!commit) { // preview only returns, commit continues
     return { committed: false, lethal, amount: amt, preview };
   }
 
   /* Recheck HP before writing. */
   const writes = [];
-  for (const { actor } of resolved) {
+  for (const { actor } of resolved) { // each actor rechecked, ends at last
     const hp = hpOf(actor);
     const { after, newTemp } = project(hp, amt);
     writes.push({ actor, after, newTemp });
   }
   const applied = [];
-  for (const w of writes) {
+  for (const w of writes) { // each write applied, ends at last
     await w.actor.update({ 'system.attributes.hp.value': w.after, 'system.attributes.hp.temp': w.newTemp });
     applied.push({ name: w.actor.name, hp: w.after });
   }

@@ -1,6 +1,6 @@
 /* WebSocket client with capped exponential backoff. */
-const BACKOFF_SCHEDULE_MS = [1_000, 2_000, 4_000, 8_000];
-const BACKOFF_MAX_MS = 30_000;
+const BACKOFF_SCHEDULE_MS = [1_000, 2_000, 4_000, 8_000]; // retry delays ms
+const BACKOFF_MAX_MS = 30_000; // retry ceiling ms
 
 export class WsClient {
   constructor({ url, onOpen, onClose, onMessage }) {
@@ -21,11 +21,11 @@ export class WsClient {
 
   stop() {
     this.stopped = true;
-    if (this.reconnectTimer) {
+    if (this.reconnectTimer) { // timer pending gets cleared
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    if (this.socket) {
+    if (this.socket) { // socket present gets closed
       try { this.socket.close(1000, 'module disabled'); } catch {}
       this.socket = null;
     }
@@ -36,7 +36,7 @@ export class WsClient {
   }
 
   send(message) {
-    if (!this.isOpen()) {
+    if (!this.isOpen()) { // closed socket warns, returns false
       console.warn(`[aagm-o] cannot send: socket not open. Dropping ${message?.method || 'message'}.`);
       return false;
     }
@@ -50,7 +50,7 @@ export class WsClient {
   }
 
   _connect() {
-    if (this.stopped) return;
+    if (this.stopped) return; // stopped returns, else connects
     let s;
     try {
       s = new WebSocket(this.url);
@@ -80,12 +80,12 @@ export class WsClient {
     s.addEventListener('close', (ev) => {
       this.socket = null;
       try { this.onClose({ code: ev.code, reason: ev.reason }); } catch {}
-      if (ev.code >= 4000 && ev.code < 5000) {
+      if (ev.code >= 4000 && ev.code < 5000) { // relay refusal stops reconnecting
         this.stopped = true;
         console.warn(`[aagm-o] relay refused connection (${ev.code} ${ev.reason}); not reconnecting.`);
         return;
       }
-      if (!this.stopped) this._scheduleReconnect();
+      if (!this.stopped) this._scheduleReconnect(); // not stopped schedules retry
     });
 
     /* Close events schedule reconnection. */
@@ -93,7 +93,7 @@ export class WsClient {
   }
 
   _scheduleReconnect() {
-    if (this.stopped) return;
+    if (this.stopped) return; // stopped returns, else schedules
     const idx = Math.min(this.attempt, BACKOFF_SCHEDULE_MS.length - 1);
     const delay = this.attempt < BACKOFF_SCHEDULE_MS.length ? BACKOFF_SCHEDULE_MS[idx] : BACKOFF_MAX_MS;
     this.attempt++;

@@ -1,9 +1,9 @@
 $ErrorActionPreference = 'Stop'
 
-$projectPath = $PSScriptRoot
-$relayPath = Join-Path $projectPath 'relay'
-$promptPath = Join-Path $relayPath 'LISTENER_PROMPT.md'
-$runtimePath = Join-Path ([System.IO.Path]::GetTempPath()) 'AAGM-O'
+$projectPath = $PSScriptRoot ## script root folder
+$relayPath = Join-Path $projectPath 'relay' ## relay folder
+$promptPath = Join-Path $relayPath 'LISTENER_PROMPT.md' ## listener prompt file
+$runtimePath = Join-Path ([System.IO.Path]::GetTempPath()) 'AAGM-O' ## temp log folder
 New-Item -ItemType Directory -Path $runtimePath -Force | Out-Null
 
 function Show-AagmMessage([string]$message, [int]$icon = 64) {
@@ -13,9 +13,9 @@ function Show-AagmMessage([string]$message, [int]$icon = 64) {
 
 try {
   $relayPorts = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
-    Where-Object { $_.LocalPort -in 7888, 7889 }
+    Where-Object { $_.LocalPort -in 7888, 7889 } ## keeps relay port listeners
 
-  if (($relayPorts | Select-Object -ExpandProperty LocalPort -Unique).Count -lt 2) {
+  if (($relayPorts | Select-Object -ExpandProperty LocalPort -Unique).Count -lt 2) { ## under two ports starts relay
     $nodePath = (Get-Command node -ErrorAction Stop).Source
     Start-Process -FilePath $nodePath `
       -ArgumentList 'index.js' `
@@ -27,12 +27,12 @@ try {
   }
 
   $listener = Get-CimInstance Win32_Process |
-    Where-Object {
+    Where-Object { ## keeps codex processes with listener flag
       $_.Name -match '^codex(\.exe)?$' -and
       $_.CommandLine -match 'mcp_servers\.aagm-o\.tool_timeout_sec'
     }
 
-  if (-not $listener) {
+  if (-not $listener) { ## no listener starts codex
     $codexPath = (Get-Command codex -ErrorAction Stop).Source
     $arguments = @(
       'exec',

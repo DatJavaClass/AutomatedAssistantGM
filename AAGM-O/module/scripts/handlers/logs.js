@@ -3,21 +3,21 @@
 let activeUnsub = null;
 
 export async function handleLogsSubscribe(params, ctx) {
-  if (!ctx.logTap) throw new Error('log tap not installed');
-  if (activeUnsub) {
+  if (!ctx.logTap) throw new Error('log tap not installed'); // no tap throws, tap continues
+  if (activeUnsub) { // old subscription dropped first
     activeUnsub();
     activeUnsub = null;
   }
-  const levels = Array.isArray(params?.levels) && params.levels.length ? new Set(params.levels) : null;
+  const levels = Array.isArray(params?.levels) && params.levels.length ? new Set(params.levels) : null; // levels set or null
   let filterRe = null;
-  if (params?.filter) {
+  if (params?.filter) { // filter given compiles regex
     try { filterRe = new RegExp(params.filter); }
     catch (err) { throw new Error(`invalid filter regex: ${err.message}`); }
   }
 
   const filterFn = (entry) => {
-    if (levels && !levels.has(entry.level)) return false;
-    if (filterRe && !filterRe.test(entry.message)) return false;
+    if (levels && !levels.has(entry.level)) return false; // level not wanted drops entry
+    if (filterRe && !filterRe.test(entry.message)) return false; // message mismatch drops entry
     return true;
   };
 
@@ -29,7 +29,7 @@ export async function handleLogsSubscribe(params, ctx) {
 }
 
 export async function handleLogsUnsubscribe() {
-  if (activeUnsub) {
+  if (activeUnsub) { // active subscription dropped, else nothing
     activeUnsub();
     activeUnsub = null;
   }

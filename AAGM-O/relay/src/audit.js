@@ -25,11 +25,11 @@ function json(data, space = 0) {
   }
 }
 
-const LOG_TEXT_LIMIT = 4000;
+const LOG_TEXT_LIMIT = 4000; // max logged string length
 
 /* Cap long strings before they hit the log. */
 export function truncateForLog(str) {
-  if (typeof str !== 'string' || str.length <= LOG_TEXT_LIMIT) return str;
+  if (typeof str !== 'string' || str.length <= LOG_TEXT_LIMIT) return str; // short or non string returns unchanged
   return `${str.slice(0, LOG_TEXT_LIMIT)} [... ${str.length - LOG_TEXT_LIMIT} more chars]`;
 }
 
@@ -39,7 +39,7 @@ export class Audit {
     this.logDir = logDir ? resolve(logDir) : null;
     this.now = now;
     this.logPath = null;
-    if (this.logDir) {
+    if (this.logDir) { // log dir set creates log, else skips
       try { this.logPath = this.createLog(); }
       catch (err) { console.error(`[audit] could not create log at ${this.logDir}:`, err.message); }
     }
@@ -47,7 +47,7 @@ export class Audit {
 
   createLog() {
     mkdirSync(this.logDir, { recursive: true });
-    for (let n = 0; ; n++) {
+    for (let n = 0; ; n++) { // tries names; success returns, non EEXIST throws
       const path = join(this.logDir, logName(this.now(), n));
       try {
         const fd = openSync(path, 'wx');
@@ -58,26 +58,26 @@ export class Audit {
         }
         return path;
       } catch (err) {
-        if (err.code !== 'EEXIST') throw err;
+        if (err.code !== 'EEXIST') throw err; // name taken retries, other errors throw
       }
     }
   }
 
   log(event, data = {}) {
     const date = this.now(), payload = json(data);
-    if (this.logPath) {
+    if (this.logPath) { // log file open appends, else skipped
       const formatted = json(data, 2);
       appendFileSync(this.logPath, `\n## ${localTime(date)} ${event}\n\n\`\`\`json\n${formatted}\n\`\`\`\n`, 'utf8');
     }
-    if (this.toStdout) console.log(`${date.toISOString()} ${event} ${payload}`); // one line per event, grep friendly
+    if (this.toStdout) console.log(`${date.toISOString()} ${event} ${payload}`); // stdout on prints one grep friendly line
   }
 
   listLogs() {
-    if (!this.logDir) return [];
+    if (!this.logDir) return []; // no log dir returns empty list
     try {
       return readdirSync(this.logDir, { withFileTypes: true })
-        .filter((entry) => entry.isFile() && extname(entry.name).toLowerCase() === '.md')
-        .map((entry) => {
+        .filter((entry) => entry.isFile() && extname(entry.name).toLowerCase() === '.md') // keeps .md files only
+        .map((entry) => { // builds name, size, mtime per file
           const path = join(this.logDir, entry.name), info = lstatSync(path);
           return { name: entry.name, bytes: info.size, modified: info.mtime.toISOString() };
         })
@@ -88,14 +88,14 @@ export class Audit {
   }
 
   readLog(name) {
-    if (name == null && this.logPath) name = basename(this.logPath);
-    if (!this.logDir || typeof name !== 'string' || basename(name) !== name || extname(name).toLowerCase() !== '.md') {
+    if (name == null && this.logPath) name = basename(this.logPath); // no name defaults to current log
+    if (!this.logDir || typeof name !== 'string' || basename(name) !== name || extname(name).toLowerCase() !== '.md') { // invalid name throws, valid continues
       throw new Error('Audit log name is not valid.');
     }
     const path = resolve(this.logDir, name);
     const localPath = relative(this.logDir, path);
-    if (localPath.startsWith('..') || isAbsolute(localPath)) throw new Error('Audit log path is outside the log directory.');
-    if (!lstatSync(path).isFile()) throw new Error('Audit log was not found.');
+    if (localPath.startsWith('..') || isAbsolute(localPath)) throw new Error('Audit log path is outside the log directory.'); // path outside log dir throws
+    if (!lstatSync(path).isFile()) throw new Error('Audit log was not found.'); // non file throws, file read
     return readFileSync(path, 'utf8');
   }
 }

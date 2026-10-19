@@ -3,9 +3,9 @@
 export async function handleQueryScene(params) {
   const { sceneId } = params || {};
   const scene = sceneId ? game.scenes.get(sceneId) : game.scenes.active;
-  if (!scene) throw new Error(`scene not found: ${sceneId || '<active>'}`);
+  if (!scene) throw new Error(`scene not found: ${sceneId || '<active>'}`); // unknown scene throws
 
-  const tokens = scene.tokens?.map((t) => ({
+  const tokens = scene.tokens?.map((t) => ({ // one row per token
     id: t.id,
     name: t.name,
     x: t.x,

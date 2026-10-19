@@ -7,7 +7,7 @@ const PAGE_NAME = 'Session Log';
 
 async function getLog() {
   const log = await fromUuid(RESCUE_LOG_UUID);
-  if (!log) {
+  if (!log) { // missing journal throws, found returns
     const err = new Error(`rescue log journal not found at ${RESCUE_LOG_UUID}`);
     err.code = -33002;
     throw err;
@@ -47,7 +47,7 @@ export async function handleLootPending() {
 
 async function appendToLog(log, html) {
   const page = log.pages.getName(PAGE_NAME);
-  if (!page) return;
+  if (!page) return; // no page returns quietly
   const cur = page.text?.content || '';
   await page.update({ 'text.content': cur + '\n' + html });
 }
@@ -60,15 +60,15 @@ export async function handleLootRestore(params = {}) {
   const restored = [], failed = [];
 
   const stashNow = () => foundry.utils.deepClone(log.getFlag(FLAG_SCOPE, FLAG_KEY) || {});
-  const targets = eventIds?.length
+  const targets = eventIds?.length // ids given, else pending
     ? eventIds
     : Object.keys(stashNow().pending || {});
 
-  for (const eventId of targets) {
+  for (const eventId of targets) { // each event restored, ends at last
     /* Refresh before each restore. */
     const stash = stashNow();
     const rec = stash.pending?.[eventId];
-    if (!rec) {
+    if (!rec) { // not pending records failure, skips
       failed.push({ eventId, reason: 'not in pending queue (already restored?)' });
       continue;
     }
@@ -79,12 +79,12 @@ export async function handleLootRestore(params = {}) {
 
       const data = foundry.utils.deepClone(rec.itemData);
       delete data._id;
-      if (data.system && data.system.quantity != null) data.system.quantity = rec.shortfall;
+      if (data.system && data.system.quantity != null) data.system.quantity = rec.shortfall; // quantity set to shortfall when present
       data.flags = data.flags || {};
       data.flags['aagm-o'] = { restoredFrom: eventId, restoredAt: new Date().toISOString() };
 
       const created = await actor.createEmbeddedDocuments('Item', [data]);
-      if (!created?.length) throw new Error('createEmbeddedDocuments returned nothing');
+      if (!created?.length) throw new Error('createEmbeddedDocuments returned nothing'); // nothing created throws, else continues
 
       /* Remove only after verified creation. */
       await log.update({ [`flags.${FLAG_SCOPE}.${FLAG_KEY}.pending.-=${eventId}`]: null });
@@ -101,16 +101,16 @@ export async function handleLootRestore(params = {}) {
   }
 
   let acked = 0;
-  if (ackPhantoms?.length) {
+  if (ackPhantoms?.length) { // phantom ids given, else skipped
     const stash = stashNow();
     const removals = {};
-    for (const id of ackPhantoms) {
-      if (stash.phantoms?.[id]) {
+    for (const id of ackPhantoms) { // each phantom id checked, ends at last
+      if (stash.phantoms?.[id]) { // phantom present queued for removal
         removals[`flags.${FLAG_SCOPE}.${FLAG_KEY}.phantoms.-=${id}`] = null;
         acked++;
       }
     }
-    if (acked) await log.update(removals);
+    if (acked) await log.update(removals); // any acked writes removals
   }
 
   return { restored, failed, ackedPhantoms: acked };

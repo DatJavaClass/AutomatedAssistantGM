@@ -15,8 +15,8 @@ import { WriteQueue } from './src/write-queue.js';
 import { RollbackStore } from './src/rollback-store.js';
 import { TabTable } from './src/tabs.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const CAPABILITY_SET = 'gm';
+const __dirname = dirname(fileURLToPath(import.meta.url)); // relay module folder
+const CAPABILITY_SET = 'gm'; // capability set name
 
 function loadConfig() {
   const path = join(__dirname, 'config.json');
@@ -35,9 +35,9 @@ function loadConfig() {
     console.error(`[relay] config.json is not valid JSON: ${err.message}`);
     process.exit(1);
   }
-  for (const section of ['ws', 'mcp']) { // localhost only, defense-in-depth
+  for (const section of ['ws', 'mcp']) { // checks ws and mcp loopback hosts
     const host = cfg?.[section]?.host;
-    if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') {
+    if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') { // bad host exits 1, good continues
       console.error(`[relay] config.${section}.host must be 127.0.0.1, localhost, or ::1. Got "${host}".`);
       process.exit(1);
     }

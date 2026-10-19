@@ -3,13 +3,13 @@
 import { existsSync, rmSync } from 'node:fs';
 import { truncateForLog } from './audit.js';
 
-const LISTENER_TIMEOUT_MS = 45_000; // active window, ~1.5x slow loop cadence
-const SWEEP_INTERVAL_MS = 10_000;
-const LONG_POLL_TIMEOUT_MS = 25_000; // under MCP's 60s and LISTENER_TIMEOUT_MS
+const LISTENER_TIMEOUT_MS = 45_000; // listener idle window
+const SWEEP_INTERVAL_MS = 10_000; // sweep tick interval
+const LONG_POLL_TIMEOUT_MS = 25_000; // long poll cap
 const TERMINATORS = new Set(['/exit', '/stop', '/quit']); // DESIGN §10 stop words
 
-const TAB_CLOSE = '/close';
-const INTERACTION_COMMANDS = new Map([['/int', 'internal'], ['/ext', 'external']]);
+const TAB_CLOSE = '/close'; // tab close command
+const INTERACTION_COMMANDS = new Map([['/int', 'internal'], ['/ext', 'external']]); // mode switch commands
 
 export class PromptQueue {
   constructor({ dispatcher, audit, stopFilePath, capabilitySet, tabs }) {
@@ -37,23 +37,18 @@ export class PromptQueue {
     dispatcher.subscribe('aagm.prompt', (p) => this._onPrompt(p || {}));
     dispatcher.subscribe('aagm.status.request', () => {
       this._broadcastStatus();
-      this.dispatcher.notifyBridge({
-        capabilitySet: this.capabilitySet,
-        method: 'aagm.mode',
-        params: { mode: this.interactionMode },
-      });
+      this._broadcastMode();
     });
   }
 
   start() {
-    if (this._sweep) return;
+    if (this._sweep) return; // running sweep returns, else starts
     /* Expire quiet listeners. */
     this._sweep = setInterval(() => {
       this._checkStopFile(); // catch .loop-stop mid-idle, not next timeout
-      if (this.terminate) this._wake();
-      if (this.listenerActive && Date.now() - this.listenerLastSeen > LISTENER_TIMEOUT_MS) {
-        this.listenerActive = false;
-        this.activeListenerId = null;
+      if (this.terminate) this._wake(); // terminate set wakes pollers
+      if (this.listenerActive && Date.now() - this.listenerLastSeen > LISTENER_TIMEOUT_MS) { // quiet listener expires and broadcasts
+        this._deactivate();
         this._broadcastStatus();
       }
     }, SWEEP_INTERVAL_MS);
@@ -61,13 +56,13 @@ export class PromptQueue {
   }
 
   stop() {
-    if (this._sweep) { clearInterval(this._sweep); this._sweep = null; }
+    if (this._sweep) { clearInterval(this._sweep); this._sweep = null; } // sweep running stops and clears
   }
 
   _onPrompt({ promptId, text, tabId }) {
     const trimmed = (text || '').trim();
     const command = trimmed.toLowerCase();
-    if (TERMINATORS.has(command)) {
+    if (TERMINATORS.has(command)) { // stop word terminates, returns
       this.terminate = true;
       this.tabs.reset('terminate');
       this.audit.log('chat.terminate', { via: command });
@@ -75,18 +70,18 @@ export class PromptQueue {
       this._wake();
       return;
     }
-    if (command === TAB_CLOSE) {
-      if (this.tabs.tabs.has(tabId)) this.tabs.close(tabId);
+    if (command === TAB_CLOSE) { // close command closes tab, returns
+      if (this.tabs.tabs.has(tabId)) this.tabs.close(tabId); // known tab closes, unknown ignored
       return;
     }
-    if (INTERACTION_COMMANDS.has(command)) {
+    if (INTERACTION_COMMANDS.has(command)) { // mode command switches mode, returns
       this.setInteractionMode(INTERACTION_COMMANDS.get(command), command);
-      this.dispatcher.notifyBridge({ capabilitySet: this.capabilitySet, method: 'aagm.mode', params: { mode: this.interactionMode } });
+      this._broadcastMode();
       return;
     }
-    if (this.interactionMode === 'external') {
+    if (this.interactionMode === 'external') { // external mode ignores prompt, returns
       this.audit.log('chat.external.ignored', { promptId, tabId, text: truncateForLog(text ?? '') });
-      this.dispatcher.notifyBridge({ capabilitySet: this.capabilitySet, method: 'aagm.mode', params: { mode: this.interactionMode } });
+      this._broadcastMode();
       return;
     }
     const interrupt = this.tabs.isWorking(tabId);
@@ -99,8 +94,8 @@ export class PromptQueue {
 
   /* Check the local kill file. */
   _checkStopFile() {
-    if (!this.stopFilePath || !existsSync(this.stopFilePath)) return;
-    if (!this.terminate) {
+    if (!this.stopFilePath || !existsSync(this.stopFilePath)) return; // no stop file returns
+    if (!this.terminate) { // first stop file hit sets terminate
       this.terminate = true;
       this.tabs.reset('terminate');
       this.audit.log('chat.terminate', { via: '.loop-stop' });
@@ -109,35 +104,29 @@ export class PromptQueue {
   }
 
   _wake() {
-    if (this._waiters.size === 0) return;
-    for (const w of [...this._waiters]) w();
+    if (this._waiters.size === 0) return; // no waiters returns
+    for (const w of [...this._waiters]) w(); // each waiter released
   }
 
   /* Claim the single listener slot. */
   claimListener(listenerId) {
     const expired = this.activeListenerId && Date.now() - this.listenerLastSeen > LISTENER_TIMEOUT_MS;
-    if (expired) {
-      this.activeListenerId = null;
-      this.listenerActive = false;
-    }
-    if (this.activeListenerId && listenerId !== this.activeListenerId) return false;
+    if (expired) this._deactivate(); // expired slot cleared
+    if (this.activeListenerId && listenerId !== this.activeListenerId) return false; // other owner refused, same owner renews
     this.activeListenerId = listenerId;
     this.listenerLastSeen = Date.now();
-    if (!this.listenerActive) {
-      this.listenerActive = true;
-      this._broadcastStatus();
-    }
+    this._activate();
     return true;
   }
 
   /* Wait for work or timeout. */
   async waitForWork({ timeoutMs = LONG_POLL_TIMEOUT_MS } = {}) {
     this._checkStopFile();
-    if (this.terminate || this.queue.length) return;
+    if (this.terminate || this.queue.length) return; // work pending skips the wait
     await new Promise((resolve) => {
       let settled = false;
       const finish = () => {
-        if (settled) return;
+        if (settled) return; // repeat finish ignored
         settled = true;
         clearTimeout(timer);
         this._waiters.delete(finish);
@@ -151,17 +140,13 @@ export class PromptQueue {
   /* Draining activates listener status. */
   drain() {
     this.listenerLastSeen = Date.now();
-    if (!this.listenerActive) {
-      this.listenerActive = true;
-      this._broadcastStatus();
-    }
+    this._activate();
     this._checkStopFile();
     /* Consume termination once. */
     const terminate = this.terminate;
     this.terminate = false;
-    if (terminate) {
-      this.activeListenerId = null;
-      this.listenerActive = false;
+    if (terminate) { // consumed terminate frees listener slot
+      this._deactivate();
       this.tabs.reset('terminate');
       this._broadcastStatus();
     }
@@ -172,8 +157,8 @@ export class PromptQueue {
   /* Consume pending interrupts for one tab. */
   drainInterrupts(tabId) {
     const prompts = [];
-    this.queue = this.queue.filter((prompt) => {
-      if (!prompt.interrupt || prompt.tabId !== tabId) return true;
+    this.queue = this.queue.filter((prompt) => { // keeps others, collects tab interrupts
+      if (!prompt.interrupt || prompt.tabId !== tabId) return true; // other prompts stay, interrupts collected
       prompts.push(prompt);
       return false;
     });
@@ -181,18 +166,18 @@ export class PromptQueue {
   }
 
   setInteractionMode(mode, via = 'relay') {
-    if (mode !== 'internal' && mode !== 'external') return false;
+    if (mode !== 'internal' && mode !== 'external') return false; // invalid mode returns false
     const prev = this.interactionMode;
     this.interactionMode = mode;
-    if (mode === 'external') {
+    if (mode === 'external') { // external parks, internal unparks
       this.tabs.settle('external-mode');
-      const parked = this.queue.filter((prompt) => !prompt.close);
-      this.queue = this.queue.filter((prompt) => prompt.close);
-      if (parked.length) {
+      const parked = this.queue.filter((prompt) => !prompt.close); // non close prompts parked
+      this.queue = this.queue.filter((prompt) => prompt.close); // keeps only close prompts
+      if (parked.length) { // parked prompts held and logged
         this.parked.push(...parked);
         this.audit.log('chat.external.parked', { count: parked.length });
       }
-    } else if (prev === 'external' && this.parked.length) {
+    } else if (prev === 'external' && this.parked.length) { // leaving external restores parked prompts
       this.queue = [...this.parked.splice(0), ...this.queue];
       this.audit.log('chat.internal.unparked', { count: this.queue.length });
     }
@@ -205,9 +190,23 @@ export class PromptQueue {
     return { state: this.listenerActive ? 'ready' : 'no-listener' };
   }
 
+  _activate() {
+    if (this.listenerActive) return; // already active returns
+    this.listenerActive = true;
+    this._broadcastStatus();
+  }
+
+  _deactivate() {
+    this.listenerActive = false;
+    this.activeListenerId = null;
+  }
+
   _broadcastStatus() {
     /* Foundry detects disconnection locally. */
-    const state = this.listenerActive ? 'ready' : 'no-listener';
-    this.dispatcher.notifyBridge({ capabilitySet: this.capabilitySet, method: 'aagm.status', params: { state } });
+    this.dispatcher.notifyBridge({ capabilitySet: this.capabilitySet, method: 'aagm.status', params: this.status() });
+  }
+
+  _broadcastMode() {
+    this.dispatcher.notifyBridge({ capabilitySet: this.capabilitySet, method: 'aagm.mode', params: { mode: this.interactionMode } });
   }
 }
