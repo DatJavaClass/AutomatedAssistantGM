@@ -16,7 +16,7 @@ const managed = (p) => p?.getFlag?.('world', 'runManaged') || p?.flags?.world?.r
 /* Deny list by id, name, or runManaged page. */
 export function isProtectedJournal(j) {
   try {
-    if (DENY_IDS.has(j.id) || DENY_NAME.test(String(j.name ?? ''))) return true;
+    if (DENY_IDS.has(j.id) || DENY_NAME.test(String(j.name ?? ''))) return true; // denied id or name returns true
     return Array.from(j.pages ?? []).some(managed);
   } catch { return true; } // unsure means skip
 }
@@ -25,8 +25,8 @@ export function isProtectedJournal(j) {
 function denied(doc) {
   try {
     const page = doc.documentName === 'JournalEntryPage';
-    const j = page ? doc.parent : doc.documentName === 'JournalEntry' ? doc : null;
-    if (!j) return false;
+    const j = page ? doc.parent : doc.documentName === 'JournalEntry' ? doc : null; // page parent or entry
+    if (!j) return false; // no journal returns false
     return (page && !!managed(doc)) || isProtectedJournal(j);
   } catch { return true; } // unsure means skip
 }
@@ -39,13 +39,13 @@ function snap(doc) {
 }
 
 function stamp(entry, s) {
-  if (s.oversized) entry.oversized = true;
-  if (s.partial) entry.partial = true;
+  if (s.oversized) entry.oversized = true; // oversized flags entry
+  if (s.partial) entry.partial = true; // partial flags entry
   return entry;
 }
 
 function onPreUpdate(doc) {
-  if (!rec || denied(doc)) return;
+  if (!rec || denied(doc)) return; // no recording or denied returns
   const uuid = doc.uuid;
   if (rec.updated.has(uuid) || rec.created.has(uuid)) return; // earliest state wins
   rec.updated.add(uuid);
@@ -54,26 +54,26 @@ function onPreUpdate(doc) {
 }
 
 function onPreCreate(doc, data, options) {
-  if (rec && options && !denied(doc)) options._aagmRp = rec.id;
+  if (rec && options && !denied(doc)) options._aagmRp = rec.id; // recording and allowed tags options
 }
 
 function onCreate(doc, options) {
-  if (!rec || options?._aagmRp !== rec.id) return;
+  if (!rec || options?._aagmRp !== rec.id) return; // no recording or foreign tag returns
   rec.created.add(doc.uuid);
   rec.entries.push({ op: 'create', uuid: doc.uuid, documentName: doc.documentName, name: doc.name ?? null });
 }
 
 function onPreDelete(doc) {
-  if (!rec || denied(doc)) return;
+  if (!rec || denied(doc)) return; // no recording or denied returns
   const s = snap(doc);
   rec.entries.push(stamp({ op: 'delete', uuid: doc.uuid, documentName: doc.documentName, name: doc.name ?? null,
     parentUuid: doc.parent?.uuid ?? null, pack: doc.pack ?? null, data: s.obj }, s));
 }
 
 export function installRecorder() {
-  if (installed) return;
+  if (installed) return; // installed returns, else installs
   installed = true;
-  for (const T of DOC_TYPES) {
+  for (const T of DOC_TYPES) { // each doc type hooked, ends after last
     Hooks.on(`preUpdate${T}`, onPreUpdate);
     Hooks.on(`preCreate${T}`, onPreCreate);
     Hooks.on(`create${T}`, onCreate);
@@ -95,7 +95,7 @@ export function runRecorded(rp, fn) {
       const result = await fn();
       return { result, entries };
     } catch (err) {
-      if (err && typeof err === 'object') err.rollbackEntries = entries;
+      if (err && typeof err === 'object') err.rollbackEntries = entries; // object error carries entries
       throw err;
     } finally {
       rec = null;

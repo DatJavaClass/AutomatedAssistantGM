@@ -15,7 +15,7 @@ export class MacroMirror {
     const contextual = this.settings.get('mirrorContextualSort');
     const directories = contextual ? await listDirectories(root) : [];
     const written = [], failed = [], targets = new Set();
-    for (const macro of macros || []) {
+    for (const macro of macros || []) { // each macro written, failures collected
       try {
         validateMacro(macro);
         const folder = contextual ? await chooseFolder(root, directories, macro.folderPath) : root;
@@ -25,9 +25,9 @@ export class MacroMirror {
         const target = resolve(scopedFolder, `${sanitizeSegment(macro.name)}.js`);
         assertInside(root, target);
         const key = target.toLowerCase();
-        if (targets.has(key)) throw new Error('sanitized filename collision');
+        if (targets.has(key)) throw new Error('sanitized filename collision'); // duplicate target throws
         targets.add(key);
-        if (await exists(target)) await copyFile(target, `${target}.bkp`);
+        if (await exists(target)) await copyFile(target, `${target}.bkp`); // existing file backs up to .bkp
         await writeFile(target, renderMacro(macro), 'utf8');
         written.push(relative(root, target));
       } catch (error) {
@@ -48,8 +48,8 @@ export class MacroMirror {
     const root = await this._root();
     const expected = `${sanitizeSegment(name)}.js`.toLowerCase();
     const matches = (await listFiles(root)).filter((file) => basename(file).toLowerCase() === expected);
-    if (!matches.length) throw new Error(`mirror backup not found for "${name}"`);
-    if (matches.length > 1) throw new Error(`multiple mirror backups match "${name}"`);
+    if (!matches.length) throw new Error(`mirror backup not found for "${name}"`); // no match throws
+    if (matches.length > 1) throw new Error(`multiple mirror backups match "${name}"`); // ambiguous match throws
     assertInside(root, matches[0]);
     const text = await readFile(matches[0], 'utf8');
     const record = parseMacro(text, basename(matches[0], '.js'));
@@ -58,21 +58,21 @@ export class MacroMirror {
   }
 
   async _root() {
-    if (!this.settings.get('mirrorEnabled')) throw new Error('Macro Mirror is disabled');
+    if (!this.settings.get('mirrorEnabled')) throw new Error('Macro Mirror is disabled'); // disabled mirror throws
     const configured = String(this.settings.get('mirrorPath') || '').trim();
-    if (!configured) throw new Error('Macro Mirror path is empty');
-    if (!isAbsolute(configured)) throw new Error('Macro Mirror path must be absolute');
+    if (!configured) throw new Error('Macro Mirror path is empty'); // empty path throws
+    if (!isAbsolute(configured)) throw new Error('Macro Mirror path must be absolute'); // relative path throws
     let root;
     try { root = await realpath(configured); } catch { throw new Error(`Macro Mirror path does not exist: ${configured}`); }
-    if (!(await stat(root)).isDirectory()) throw new Error(`Macro Mirror path is not a directory: ${configured}`);
+    if (!(await stat(root)).isDirectory()) throw new Error(`Macro Mirror path is not a directory: ${configured}`); // non directory throws
     return root;
   }
 }
 
 function validateMacro(macro) {
-  if (!macro || typeof macro.name !== 'string' || !macro.name.trim()) throw new Error('macro name is required');
-  if (typeof macro.uuid !== 'string' || !macro.uuid.trim()) throw new Error('macro UUID is required');
-  if (typeof macro.command !== 'string') throw new Error('macro command must be text');
+  if (!macro || typeof macro.name !== 'string' || !macro.name.trim()) throw new Error('macro name is required'); // bad name throws
+  if (typeof macro.uuid !== 'string' || !macro.uuid.trim()) throw new Error('macro UUID is required'); // bad uuid throws
+  if (typeof macro.command !== 'string') throw new Error('macro command must be text'); // non text command throws
 }
 
 function renderMacro(macro) {
@@ -86,8 +86,8 @@ function parseMacro(text, name) {
   const uuid = first?.[1]?.trim();
   const folderPath = lines[1]?.match(/^\/\/ Foundry folder:\s*(.*)$/)?.[1]?.trim() ?? null;
   const img = lines[2]?.match(/^\/\/ Image:\s*(.*)$/)?.[1]?.trim() ?? null;
-  if (!uuid || folderPath === null || img === null) throw new Error('invalid three-line mirror header');
-  if (first?.[2]) {
+  if (!uuid || folderPath === null || img === null) throw new Error('invalid three-line mirror header'); // bad header throws
+  if (first?.[2]) { // header name overrides filename
     try { name = JSON.parse(first[2]); } catch { throw new Error('invalid macro name in mirror header'); }
   }
   return { uuid, folderPath, img, name, command: lines.slice(3).join('\n') };
@@ -95,10 +95,10 @@ function parseMacro(text, name) {
 
 async function chooseFolder(root, directories, folderPath) {
   const parts = String(folderPath || '').split('/').map((part) => part.trim()).filter(Boolean);
-  if (!parts.length) return root;
+  if (!parts.length) return root; // no folder parts uses root
   const wanted = normalize(parts.at(-1));
   const matches = directories.filter((folder) => normalize(basename(folder)) === wanted);
-  if (matches.length === 1) return matches[0];
+  if (matches.length === 1) return matches[0]; // single match wins, else literal
   const literal = resolve(root, ...parts.map(sanitizeSegment));
   assertInside(root, literal);
   return literal;
@@ -107,8 +107,8 @@ async function chooseFolder(root, directories, folderPath) {
 async function listDirectories(root) {
   const found = [];
   const walk = async (folder) => {
-    for (const entry of await readdir(folder, { withFileTypes: true })) {
-      if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+    for (const entry of await readdir(folder, { withFileTypes: true })) { // walks every entry
+      if (!entry.isDirectory() || entry.isSymbolicLink()) continue; // files and links skipped
       const child = join(folder, entry.name);
       assertInside(root, child);
       found.push(child);
@@ -122,12 +122,12 @@ async function listDirectories(root) {
 async function listFiles(root) {
   const found = [];
   const walk = async (folder) => {
-    for (const entry of await readdir(folder, { withFileTypes: true })) {
-      if (entry.isSymbolicLink()) continue;
+    for (const entry of await readdir(folder, { withFileTypes: true })) { // walks every entry
+      if (entry.isSymbolicLink()) continue; // symlink skipped
       const child = join(folder, entry.name);
       assertInside(root, child);
-      if (entry.isDirectory()) await walk(child);
-      else if (entry.isFile() && entry.name.toLowerCase().endsWith('.js')) found.push(child);
+      if (entry.isDirectory()) await walk(child); // directory recurses
+      else if (entry.isFile() && entry.name.toLowerCase().endsWith('.js')) found.push(child); // js file collected, else ignored
     }
   };
   await walk(root);
@@ -136,8 +136,8 @@ async function listFiles(root) {
 
 function sanitizeSegment(value) {
   let clean = String(value || '').replace(INVALID, '_').replace(/[. ]+$/g, '').trim();
-  if (!clean || clean === '.' || clean === '..') clean = 'untitled';
-  if (RESERVED.test(clean)) clean = `_${clean}`;
+  if (!clean || clean === '.' || clean === '..') clean = 'untitled'; // bad name becomes untitled
+  if (RESERVED.test(clean)) clean = `_${clean}`; // reserved name gets prefix
   return clean;
 }
 
@@ -147,10 +147,10 @@ function normalize(value) {
 
 function assertInside(root, target) {
   const rel = relative(root, target);
-  if (rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))) return;
+  if (rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))) return; // inside root returns, else throws
   throw new Error('Macro Mirror path escaped its configured root');
 }
 
 async function exists(path) {
-  try { await stat(path); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  try { await stat(path); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; } // ENOENT false, else rethrow
 }

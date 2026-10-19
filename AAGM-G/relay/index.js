@@ -35,9 +35,9 @@ function loadConfig() {
     console.error(`[relay] config.json is not valid JSON: ${err.message}`);
     process.exit(1);
   }
-  for (const section of ['ws', 'mcp']) { // localhost only, defense-in-depth
+  for (const section of ['ws', 'mcp']) { // loops ws, mcp; bad host exits
     const host = cfg?.[section]?.host;
-    if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') {
+    if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') { // bad host exits, local passes
       console.error(`[relay] config.${section}.host must be 127.0.0.1, localhost, or ::1. Got "${host}".`);
       process.exit(1);
     }
@@ -73,28 +73,28 @@ function say(text, tabId) {
 
 promptQueue.onLocal = async (name, arg) => {
   try {
-    if (name === 'mode') {
+    if (name === 'mode') { // reports internal or external handoff, returns
       const parked = promptQueue.parked.length;
       say(arg === 'external'
         ? `External. Grok outside Foundry has the table. /int to come back.${parked ? ` ${parked} queued prompt(s) parked until then.` : ''}`
         : 'Internal. This chat is driving.');
       return;
     }
-    if (name === 'held') {
+    if (name === 'held') { // reports prompt parked for Grok, returns
       say('Held for the outside Grok. It picks this up on its next action.');
       return;
     }
-    if (name === 'log') {
+    if (name === 'log') { // log says tail, returns
       const file = arg || (audit.logPath ? basename(audit.logPath) : '');
       const body = audit.readLog(file);
       say(`Log ${file}\n${body.split(/\r?\n/).slice(-30).join('\n')}`);
       return;
     }
-    if (name === 'rollback') {
+    if (name === 'rollback') { // rollback runs queued, else falls out
       await writeQueue.run('rollback', async () => {
         const r = await rollbacks.rollbackTo(arg || null, { via: 'chat' });
-        if (r.refused) { say(`Rollback refused: ${r.reason}`); return; }
-        const lines = r.rolledBack.map((p) => `${p.id} ${p.state}${p.failed ? ` (${p.failed} failed)` : ''}${p.error ? ` ${p.error}` : ''}`);
+        if (r.refused) { say(`Rollback refused: ${r.reason}`); return; } // refused says reason, returns
+        const lines = r.rolledBack.map((p) => `${p.id} ${p.state}${p.failed ? ` (${p.failed} failed)` : ''}${p.error ? ` ${p.error}` : ''}`); // one line per point
         const redo = r.redoPoint ? ` Redo point ${r.redoPoint.id}.` : '';
         const head = r.rolledBack.some((p) => p.state === 'partial') ? 'Rollback partial' : 'Rolled back';
         say(`${head} to before ${r.target}.${redo}\n${lines.join('\n')}`, rollbacks.get(r.target)?.tabId);

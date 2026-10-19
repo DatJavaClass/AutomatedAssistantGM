@@ -18,7 +18,7 @@ export class TabTable {
   ensure(tabId, firstText = '') {
     const id = tabId || DEFAULT_ID;
     let tab = this.tabs.get(id);
-    if (!tab) {
+    if (!tab) { // new tab created, else reused
       const title = firstText.trim().slice(0, TITLE_LEN) || id;
       tab = { id, title, state: 'idle', mode: DEFAULT_MODE, transcript: [] };
       this.tabs.set(id, tab);
@@ -28,7 +28,7 @@ export class TabTable {
   }
 
   first() {
-    for (const tab of this.tabs.values()) return tab;
+    for (const tab of this.tabs.values()) return tab; // first tab returns
     return this.ensure(DEFAULT_ID);
   }
 
@@ -59,10 +59,10 @@ export class TabTable {
 
   reply(tabId, text, { final = true } = {}) {
     let id = tabId, line = text;
-    if (!this.tabs.has(id)) {
+    if (!this.tabs.has(id)) { // closed tab reroutes to first
       const title = this.closedTitles.get(id);
       id = this.first().id;
-      if (title) line = `[${title}] ${text}`;
+      if (title) line = `[${title}] ${text}`; // closed title prefixes reply
     }
     const tab = this.tabs.get(id);
     this.push(tab, 'assistant', line);
@@ -73,7 +73,7 @@ export class TabTable {
 
   close(tabId) {
     const tab = this.tabs.get(tabId);
-    if (!tab) return;
+    if (!tab) return; // unknown tab returns
     this.tabs.delete(tabId);
     this.closedTitles.set(tabId, tab.title);
     this.closed.push(tabId);
@@ -83,7 +83,7 @@ export class TabTable {
   }
 
   reset(reason) {
-    if (!this.tabs.size && !this.closed.length) return;
+    if (!this.tabs.size && !this.closed.length) return; // nothing to reset returns
     this.audit.log('tab.reset', { reason, count: this.tabs.size });
     this.tabs.clear();
     this.closed.length = 0;
@@ -100,6 +100,6 @@ export class TabTable {
 
   push(tab, role, text) {
     tab.transcript.push({ role, text, ts: new Date().toISOString() });
-    if (tab.transcript.length > MAX_LINES) tab.transcript.splice(0, tab.transcript.length - MAX_LINES);
+    if (tab.transcript.length > MAX_LINES) tab.transcript.splice(0, tab.transcript.length - MAX_LINES); // over cap trims oldest
   }
 }

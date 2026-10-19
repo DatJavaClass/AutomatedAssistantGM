@@ -45,9 +45,9 @@ const MUTATING = [
 ];
 
 function firstMatch(code, list) {
-  for (const re of list) {
+  for (const re of list) { // first regex hit returns, else null
     const m = re.exec(code);
-    if (m) return { pattern: re.source, match: m[0].slice(0, 80) };
+    if (m) return { pattern: re.source, match: m[0].slice(0, 80) }; // match returns hit, else next
   }
   return null;
 }
@@ -55,10 +55,10 @@ function firstMatch(code, list) {
 export function classifyEval(code) {
   const c = String(code ?? '');
   let m;
-  if ((m = firstMatch(c, DB_JOURNAL_DENY))) return { category: 'db-journal', ...m };
-  if ((m = firstMatch(c, NONROLLBACKABLE))) return { category: 'side-effect', ...m };
-  if ((m = firstMatch(c, DESTRUCTIVE)))     return { category: 'destructive', ...m };
-  if ((m = firstMatch(c, MUTATING)))        return { category: 'mutating', ...m };
+  if ((m = firstMatch(c, DB_JOURNAL_DENY))) return { category: 'db-journal', ...m }; // journal hit returns db-journal
+  if ((m = firstMatch(c, NONROLLBACKABLE))) return { category: 'side-effect', ...m }; // side effect hit returns side-effect
+  if ((m = firstMatch(c, DESTRUCTIVE)))     return { category: 'destructive', ...m }; // delete hit returns destructive
+  if ((m = firstMatch(c, MUTATING)))        return { category: 'mutating', ...m }; // write hit returns mutating
   return { category: 'read' };
 }
 

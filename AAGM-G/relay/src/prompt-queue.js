@@ -3,9 +3,9 @@
 import { existsSync, rmSync } from 'node:fs';
 import { truncateForLog } from './audit.js';
 
-const LISTENER_TIMEOUT_MS = 45_000; // active window, ~1.5x slow loop cadence
+const LISTENER_TIMEOUT_MS = 45_000; // listener expiry window
 const SWEEP_INTERVAL_MS = 10_000;
-const LONG_POLL_TIMEOUT_MS = 25_000; // under MCP's 60s and LISTENER_TIMEOUT_MS
+const LONG_POLL_TIMEOUT_MS = 25_000; // long poll cap
 const TERMINATORS = new Set(['/exit', '/stop', '/quit']); // DESIGN §10 stop words
 
 const TAB_CLOSE = '/close';
@@ -45,12 +45,12 @@ export class PromptQueue {
   }
 
   start() {
-    if (this._sweep) return;
+    if (this._sweep) return; // already started returns
     /* Expire quiet listeners. */
     this._sweep = setInterval(() => {
       this._checkStopFile(); // catch .loop-stop mid-idle, not next timeout
-      if (this.terminate) this._wake();
-      if (this.listenerActive && Date.now() - this.listenerLastSeen > LISTENER_TIMEOUT_MS) {
+      if (this.terminate) this._wake(); // terminate wakes waiters
+      if (this.listenerActive && Date.now() - this.listenerLastSeen > LISTENER_TIMEOUT_MS) { // expired listener resets, else stays
         this.listenerActive = false;
         this.activeListenerId = null;
         this._broadcastStatus();
@@ -60,13 +60,13 @@ export class PromptQueue {
   }
 
   stop() {
-    if (this._sweep) { clearInterval(this._sweep); this._sweep = null; }
+    if (this._sweep) { clearInterval(this._sweep); this._sweep = null; } // sweep set clears and nulls
   }
 
   _onPrompt({ promptId, text, tabId }) {
     const trimmed = (text || '').trim();
     const command = trimmed.toLowerCase();
-    if (TERMINATORS.has(command)) {
+    if (TERMINATORS.has(command)) { // stop word terminates, returns
       this.terminate = true;
       this.tabs.reset('terminate');
       this.audit.log('chat.terminate', { via: command });
@@ -74,23 +74,23 @@ export class PromptQueue {
       this._wake();
       return;
     }
-    if (command === TAB_CLOSE) {
-      if (this.tabs.tabs.has(tabId)) this.tabs.close(tabId);
+    if (command === TAB_CLOSE) { // close command closes tab, returns
+      if (this.tabs.tabs.has(tabId)) this.tabs.close(tabId); // known tab closes, else skipped
       return;
     }
-    if (INTERACTION_COMMANDS.has(command)) {
+    if (INTERACTION_COMMANDS.has(command)) { // mode command sets mode, returns
       const mode = INTERACTION_COMMANDS.get(command);
       this.tabs.setMode(tabId, mode);
       this.setInteractionMode(mode, command);
       this.onLocal?.('mode', mode);
       return;
     }
-    if (command === '/log' || command.startsWith('/log ')) {
+    if (command === '/log' || command.startsWith('/log ')) { // log command relays tail, returns
       this.audit.log('chat.command', { command: '/log' });
       this.onLocal?.('log', trimmed.slice(4).trim());
       return;
     }
-    if (command === '/rollback' || command.startsWith('/rollback ')) {
+    if (command === '/rollback' || command.startsWith('/rollback ')) { // rollback command relays point, returns
       this.audit.log('chat.command', { command: '/rollback' });
       this.onLocal?.('rollback', trimmed.slice(9).trim());
       return;
@@ -103,7 +103,7 @@ export class PromptQueue {
       ...(interrupt ? { interrupt: true } : {}), ...(external ? { external: true } : {}),
       ts: new Date().toISOString(),
     });
-    if (external) this.onLocal?.('held', text ?? '');
+    if (external) this.onLocal?.('held', text ?? ''); // external holds prompt, else skipped
     this.audit.log('chat.in', { promptId, tabId: id, interrupt, external, text: truncateForLog(text ?? '') });
     this._broadcastStatus(); // reflect listener presence as the user types
     this._wake(); // release any in-flight long-poll immediately
@@ -111,8 +111,8 @@ export class PromptQueue {
 
   /* Check the local kill file. */
   _checkStopFile() {
-    if (!this.stopFilePath || !existsSync(this.stopFilePath)) return;
-    if (!this.terminate) {
+    if (!this.stopFilePath || !existsSync(this.stopFilePath)) return; // no kill file returns
+    if (!this.terminate) { // first sighting terminates
       this.terminate = true;
       this.tabs.reset('terminate');
       this.audit.log('chat.terminate', { via: '.loop-stop' });
@@ -121,21 +121,21 @@ export class PromptQueue {
   }
 
   _wake() {
-    if (this._waiters.size === 0) return;
-    for (const w of [...this._waiters]) w();
+    if (this._waiters.size === 0) return; // no waiters returns
+    for (const w of [...this._waiters]) w(); // wakes every waiter
   }
 
   /* Claim the single listener slot. */
   claimListener(listenerId) {
     const expired = this.activeListenerId && Date.now() - this.listenerLastSeen > LISTENER_TIMEOUT_MS;
-    if (expired) {
+    if (expired) { // expired claim clears slot
       this.activeListenerId = null;
       this.listenerActive = false;
     }
-    if (this.activeListenerId && listenerId !== this.activeListenerId) return false;
+    if (this.activeListenerId && listenerId !== this.activeListenerId) return false; // other listener owns slot, false
     this.activeListenerId = listenerId;
     this.listenerLastSeen = Date.now();
-    if (!this.listenerActive) {
+    if (!this.listenerActive) { // first activation broadcasts
       this.listenerActive = true;
       this._broadcastStatus();
     }
@@ -145,11 +145,11 @@ export class PromptQueue {
   /* Wait for work or timeout. */
   async waitForWork({ timeoutMs = LONG_POLL_TIMEOUT_MS } = {}) {
     this._checkStopFile();
-    if (this.terminate || this.queue.length) return;
+    if (this.terminate || this.queue.length) return; // terminate or queued work returns
     await new Promise((resolve) => {
       let settled = false;
       const finish = () => {
-        if (settled) return;
+        if (settled) return; // already settled returns
         settled = true;
         clearTimeout(timer);
         this._waiters.delete(finish);
@@ -163,7 +163,7 @@ export class PromptQueue {
   /* Draining activates listener status. */
   drain() {
     this.listenerLastSeen = Date.now();
-    if (!this.listenerActive) {
+    if (!this.listenerActive) { // inactive listener activates, broadcasts
       this.listenerActive = true;
       this._broadcastStatus();
     }
@@ -171,13 +171,13 @@ export class PromptQueue {
     /* Consume termination once. */
     const terminate = this.terminate;
     this.terminate = false;
-    if (terminate) {
+    if (terminate) { // terminate resets listener state
       this.activeListenerId = null;
       this.listenerActive = false;
       this.tabs.reset('terminate');
       this._broadcastStatus();
     }
-    if (this.interactionMode === 'external' && !terminate) {
+    if (this.interactionMode === 'external' && !terminate) { // external hold returns empty drain
       this.activeListenerId = null;
       this.listenerActive = false;
       this._broadcastStatus();
@@ -190,8 +190,8 @@ export class PromptQueue {
   /* Consume pending interrupts for one tab. */
   drainInterrupts(tabId) {
     const prompts = [];
-    this.queue = this.queue.filter((prompt) => {
-      if (!prompt.interrupt || prompt.tabId !== tabId) return true;
+    this.queue = this.queue.filter((prompt) => { // keeps others, extracts tab interrupts
+      if (!prompt.interrupt || prompt.tabId !== tabId) return true; // other tab stays queued, match taken
       prompts.push(prompt);
       return false;
     });
@@ -202,10 +202,10 @@ export class PromptQueue {
 
   /* Pull interrupt prompts. Omit tabId for every tab. */
   takeInterrupt(tabId) {
-    if (tabId) return this.drainInterrupts(tabId);
+    if (tabId) return this.drainInterrupts(tabId); // tab given drains that tab
     const prompts = [];
-    this.queue = this.queue.filter((prompt) => {
-      if (!prompt.interrupt) return true;
+    this.queue = this.queue.filter((prompt) => { // keeps non interrupts, takes rest
+      if (!prompt.interrupt) return true; // non interrupt stays queued
       prompts.push(prompt);
       return false;
     });
@@ -213,18 +213,18 @@ export class PromptQueue {
   }
 
   setInteractionMode(mode, via = 'relay') {
-    if (mode !== 'internal' && mode !== 'external') return false;
+    if (mode !== 'internal' && mode !== 'external') return false; // invalid mode returns false
     const prev = this.interactionMode;
     this.interactionMode = mode;
-    if (mode === 'external' && prev !== 'external') {
+    if (mode === 'external' && prev !== 'external') { // entering external parks queue
       const parked = this.queue.filter((prompt) => !prompt.close);
       this.queue = this.queue.filter((prompt) => prompt.close);
-      for (const prompt of this.queue) prompt.interrupt = true; // closes still reach outside Grok
-      if (parked.length) {
+      for (const prompt of this.queue) prompt.interrupt = true; // closes stay interrupts for Grok
+      if (parked.length) { // parked prompts get logged
         this.parked.push(...parked);
         this.audit.log('chat.external.parked', { count: parked.length });
       }
-    } else if (mode === 'internal' && prev === 'external' && this.parked.length) {
+    } else if (mode === 'internal' && prev === 'external' && this.parked.length) { // leaving external unparks queue
       const count = this.parked.length;
       this.queue = [...this.parked.splice(0), ...this.queue];
       this.audit.log('chat.internal.unparked', { count });

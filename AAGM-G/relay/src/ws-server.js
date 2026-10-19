@@ -26,7 +26,7 @@ const CAPABILITY_SETS = {
 
 export function startWsServer({ config, dispatcher, audit, worldSettings }) {
   const { host, port } = config.ws;
-  if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') {
+  if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') { // non local host throws, else binds
     throw new Error(`refusing to bind WS server to non-localhost address "${host}"`);
   }
   const wss = new WebSocketServer({ host, port });
@@ -43,7 +43,7 @@ export function startWsServer({ config, dispatcher, audit, worldSettings }) {
 
 function handleConnection(socket, req, { config, dispatcher, audit, worldSettings }) {
   const remote = req.socket.remoteAddress;
-  if (remote && !isLoopback(remote)) { // belt to the bind's suspenders
+  if (remote && !isLoopback(remote)) { // non loopback closes, returns
     audit.log('ws.reject_nonlocal', { remote });
     socket.close(4003, 'non-localhost');
     return;
@@ -52,7 +52,7 @@ function handleConnection(socket, req, { config, dispatcher, audit, worldSetting
   let sessionId = null, userId = null, helloSeen = false;
 
   const send = (msg) => {
-    if (socket.readyState !== socket.OPEN) return;
+    if (socket.readyState !== socket.OPEN) return; // closed socket returns
     try {
       socket.send(JSON.stringify(msg));
     } catch (err) {
@@ -69,14 +69,14 @@ function handleConnection(socket, req, { config, dispatcher, audit, worldSetting
       return;
     }
 
-    if (!helloSeen) {
-      if (msg.method !== 'hello') {
+    if (!helloSeen) { // first message must be hello
+      if (msg.method !== 'hello') { // not hello rejects, returns
         send({ jsonrpc: '2.0', error: { code: -33003, message: 'expected hello first' }, id: msg.id ?? null });
         socket.close(4000, 'expected hello');
         return;
       }
       const result = validateHello(msg, { config, dispatcher, audit });
-      if (!result.ok) {
+      if (!result.ok) { // invalid hello rejects, returns
         send({ jsonrpc: '2.0', error: { code: -33003, message: result.reason }, id: msg.id ?? null });
         socket.close(result.closeCode, result.reason);
         return;
@@ -98,7 +98,7 @@ function handleConnection(socket, req, { config, dispatcher, audit, worldSetting
         isGM: result.isGM,
         send,
       });
-      if (result.settings) worldSettings?.update(result.settings, 'hello');
+      if (result.settings) worldSettings?.update(result.settings, 'hello'); // settings present sync
       send({
         jsonrpc: '2.0',
         result: { sessionId, capabilitySet: result.capabilitySet, auditLogging: result.auditLogging },
@@ -108,16 +108,16 @@ function handleConnection(socket, req, { config, dispatcher, audit, worldSetting
     }
 
     /* Route authenticated traffic. */
-    if (msg.id != null && (msg.result !== undefined || msg.error !== undefined)) {
+    if (msg.id != null && (msg.result !== undefined || msg.error !== undefined)) { // response resolves, notification routes
       dispatcher.resolveResponse(msg);
-    } else if (msg.method) {
+    } else if (msg.method) { // notification routes, else ignored
       dispatcher.routeNotification(msg);
     }
   });
 
   socket.on('close', (code, reasonBuf) => {
     const reason = reasonBuf?.toString?.() || '';
-    if (sessionId) dispatcher.unregisterBridge(sessionId, `socket close ${code} ${reason}`);
+    if (sessionId) dispatcher.unregisterBridge(sessionId, `socket close ${code} ${reason}`); // open session unregisters
     audit.log('ws.close', { sessionId, userId, code, reason });
   });
 
@@ -130,25 +130,25 @@ function validateHello(msg, { config, dispatcher, audit }) {
   const params = msg.params || {};
   const userId = params.userId;
   const userName = params.userName;
-  if (!userId) {
+  if (!userId) { // missing userId rejects
     audit.log('hello.reject', { reason: 'missing userId' });
     return { ok: false, reason: 'missing userId', closeCode: 4001 };
   }
   const userCfg = config.users?.[userId];
-  if (!userCfg) {
+  if (!userCfg) { // unknown user rejects
     audit.log('hello.reject', { reason: 'unknown userId', userId, userName });
     return { ok: false, reason: 'no capability set for userId', closeCode: 4001 };
   }
   const capabilitySet = userCfg.capabilitySet;
   const caps = CAPABILITY_SETS[capabilitySet];
-  if (!caps) {
+  if (!caps) { // unknown capability set rejects
     audit.log('hello.reject', { reason: 'unknown capability set', userId, capabilitySet });
     return { ok: false, reason: `capability set "${capabilitySet}" is not defined`, closeCode: 4001 };
   }
 
   /* Allow one connection per user. */
-  for (const rec of dispatcher.bridges.values()) {
-    if (rec.userId === userId) {
+  for (const rec of dispatcher.bridges.values()) { // scans bridges, duplicate returns reject
+    if (rec.userId === userId) { // duplicate user rejects
       audit.log('hello.reject', { reason: 'duplicate userId', userId, existingSessionId: rec.sessionId });
       return { ok: false, reason: 'duplicate-session', closeCode: 4002 };
     }

@@ -17,13 +17,13 @@ export class WorldSettings {
 
   update(raw, via = 'hello') {
     const next = { ...this.values };
-    if (MODES.has(raw.mode)) next.mode = raw.mode;
-    for (const key of ['multitasking', 'mirrorEnabled', 'mirrorContextualSort']) {
-      if (typeof raw[key] === 'boolean') next[key] = raw[key];
+    if (MODES.has(raw.mode)) next.mode = raw.mode; // valid mode accepted
+    for (const key of ['multitasking', 'mirrorEnabled', 'mirrorContextualSort']) { // each boolean key copied
+      if (typeof raw[key] === 'boolean') next[key] = raw[key]; // boolean value copied
     }
-    if (typeof raw.mirrorPath === 'string') next.mirrorPath = raw.mirrorPath;
-    if (next.mode === 'assistant') next.multitasking = false;
-    if (next.mode === 'cogm') next.multitasking = true;
+    if (typeof raw.mirrorPath === 'string') next.mirrorPath = raw.mirrorPath; // string path copied
+    if (next.mode === 'assistant') next.multitasking = false; // assistant forces multitasking off
+    if (next.mode === 'cogm') next.multitasking = true; // cogm forces multitasking on
     this.values = next;
     this.audit.log('settings.update', { via, ...next });
   }

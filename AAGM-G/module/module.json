@@ -2,7 +2,7 @@
   "id": "aagm-g",
   "title": "AAGM-G: Automated Assistant Game Master - Grok",
   "description": "Localhost-only bridge connecting a Foundry VTT GM client to Grok through MCP. Version 2.0: interrupts, rollback points, /int and /ext, and a dated markdown log. Loot Watchdog and Macro Mirror stay.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "compatibility": {
     "minimum": "12",
     "verified": "12.343",
@@ -30,7 +30,7 @@
       }
     ]
   },
-  "url": "https://github.com/DatJavaClass/AutomatedAssistantGM/tree/grape/AAGM-G",
-  "manifest": "https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/grape/AAGM-G/module/module.json",
-  "download": "https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/grape/AAGM-G/module.zip"
+  "url": "https://github.com/DatJavaClass/AutomatedAssistantGM/tree/main/AAGM-G",
+  "manifest": "https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/main/AAGM-G/module/module.json",
+  "download": "https://raw.githubusercontent.com/DatJavaClass/AutomatedAssistantGM/main/AAGM-G/module.zip"
 }

@@ -25,9 +25,9 @@ test('tabs route prompts, replies, closure, rollback points, and parking through
     sessionId: 'fake', userId: 'gm', userName: 'GM', capabilitySet: 'gm',
     capabilities: new Set(['ping', 'eval', 'damage', 'rollback.apply']), send: (message) => {
       outbox.push(message);
-      if (!message.id) return;
+      if (!message.id) return; // no id skips reply
       const { method, params } = message;
-      const reply = method === 'ping' ? { result: { pong: true } }
+      const reply = method === 'ping' ? { result: { pong: true } } // reply chosen by method
         : method === 'rollback.apply'
           ? { result: { pointId: params.pointId, applied: params.entries.map((e) => ({ uuid: e.uuid, op: e.op, ok: true })) } }
           : method === 'damage'
@@ -48,8 +48,8 @@ test('tabs route prompts, replies, closure, rollback points, and parking through
   const sent = (method) => outbox.filter((message) => message.method === method);
   const last = (method) => sent(method).at(-1)?.params;
   const waitFor = async (check) => {
-    for (let i = 0; i < 100; i++) {
-      if (check()) return;
+    for (let i = 0; i < 100; i++) { // polls 100 times, pass returns
+      if (check()) return; // check passes returns
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     assert.fail('expected relay event did not arrive');
@@ -61,8 +61,8 @@ test('tabs route prompts, replies, closure, rollback points, and parking through
       body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name, arguments: args } }),
     });
     const body = await response.json();
-    if (body.error) throw Object.assign(new Error(body.error.message), { code: body.error.code });
-    if (body.result.isError) throw new Error(body.result.content[0].text);
+    if (body.error) throw Object.assign(new Error(body.error.message), { code: body.error.code }); // rpc error throws
+    if (body.result.isError) throw new Error(body.result.content[0].text); // tool error throws
     return JSON.parse(body.result.content[0].text);
   };
 
@@ -104,7 +104,7 @@ test('tabs route prompts, replies, closure, rollback points, and parking through
     await call('foundry_send_reply', { text: 'done', tabId: 't-a' });
     assert.equal(tabs.tabs.get('t-a').state, 'done');
     assert.equal(last('aagm.reply').tabId, 't-a');
-    for (let i = 0; i < 45; i++) box('aagm.prompt', { text: `line ${i}`, tabId: 't-b' });
+    for (let i = 0; i < 45; i++) box('aagm.prompt', { text: `line ${i}`, tabId: 't-b' }); // 45 prompts to tab t-b
     assert.equal(tabs.tabs.get('t-b').transcript.length, 40);
     assert.equal(tabs.tabs.get('t-b').transcript[0].text, 'line 5');
     await call('foundry_get_prompts', { listenerId: 'listener-one' });

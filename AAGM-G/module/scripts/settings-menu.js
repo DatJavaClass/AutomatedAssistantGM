@@ -1,5 +1,4 @@
-/* Foundry settings application. */
-/* Inline HTML avoids shipping templates. */
+/* Settings app, inline HTML templates. */
 
 import { PRESETS, SETTING_KEYS, settingsSnapshot } from './settings-def.js';
 
@@ -51,13 +50,13 @@ export class AagmSettingsMenu extends FormApplication {
     super.activateListeners(html);
     /* Seatbelt: bind submit if core missed the form */
     const form = html[0] instanceof HTMLFormElement ? html[0] : (html.find('form')[0] || html.closest('form')[0]);
-    if (form && form.onsubmit == null) { this.form = form; form.onsubmit = this._onSubmit.bind(this); }
+    if (form && form.onsubmit == null) { this.form = form; form.onsubmit = this._onSubmit.bind(this); } // form unbound binds submit, else skips
     /* Modes lock dependent options live. */
     html.find('input[name="mode"]').on('change', (ev) => {
       const mode = ev.currentTarget.value, custom = mode === 'custom';
       html.find('[data-aagmg="opts"] input').prop('disabled', !custom);
       const p = PRESETS[mode];
-      if (p) for (const [k, v] of Object.entries(p)) html.find(`input[name="${k}"]`).prop('checked', v);
+      if (p) for (const [k, v] of Object.entries(p)) html.find(`input[name="${k}"]`).prop('checked', v); // preset found applies, else skips
     });
   }
 
@@ -65,8 +64,8 @@ export class AagmSettingsMenu extends FormApplication {
     const mode = (PRESETS[formData.mode] || formData.mode === 'custom') ? formData.mode : 'assistant';
     if (PRESETS[mode]) Object.assign(formData, PRESETS[mode]); /* presets win */
     formData.mode = mode;
-    for (const k of SETTING_KEYS) {
-      if (formData[k] !== undefined) await game.settings.set(MODULE_ID, k, formData[k]);
+    for (const k of SETTING_KEYS) { // each key saved, ends after last
+      if (formData[k] !== undefined) await game.settings.set(MODULE_ID, k, formData[k]); // defined value saved, else skipped
     }
     game.modules.get(MODULE_ID)?.api?.syncSettings?.(); /* relay is the enforcer */
     ui.notifications?.info(game.i18n.localize('AAGM_G.SETTINGS.Saved'));
